@@ -6,24 +6,22 @@ FP32 matrix multiplication `C = alpha * A * B + beta * C` (row-major), optimized
 
 Square matrices, FP32. GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0, driver 580. Raw data: [`results/kaggle-t4.csv`](results/kaggle-t4.csv).
 
-| Kernel | 1024³ GFLOPS | 2048³ GFLOPS | 4096³ GFLOPS | % of cuBLAS (2048³) | Main change |
+| Kernel | 1024³ GFLOPS | 2048³ GFLOPS | 4096³ GFLOPS | % of cuBLAS (1024³ / 2048³ / 4096³) | Main change |
 |---|---|---|---|---|---|
-| cuBLAS | 2595 | 7176 | 4059 | 100 | reference |
-| 01 naive | 61 | 62 | 62 | 0.9 | one thread per output element |
-| 02 coalesced | 807 | 580 | 559 | 8.1 | coalesced global memory access |
-| 03 shared-memory tiling | 1038 | 887 | 855 | 12.4 | reuse tiles of A and B from shared memory |
-| 04 register blocking | 3632 | 3619 | 3057 | 50.4 | each thread computes an 8×8 block of C from registers |
+| cuBLAS | 3825 | 4110 | 4173 | 100 | reference |
+| 01 naive | 60 | 61 | 62 | 1.6 / 1.5 / 1.5 | one thread per output element |
+| 02 coalesced | 609 | 573 | 563 | 16 / 14 / 14 | coalesced global memory access |
+| 03 shared-memory tiling | 886 | 873 | 853 | 25 / 22 / 21 | reuse tiles of A and B from shared memory |
+| 04 register blocking | 2873 | 3260 | 3096 | 76 / 81 / 77 | each thread computes an 8×8 block of C from registers |
 | 05 vectorized loads | — | — | — | — | `float4` loads, no shared-memory bank conflicts |
 | 06 double buffering | — | — | — | — | overlap tile loads with computation |
 
-Step 02 is 9–13x faster than step 01, from changing only how threads map to the matrix. Step 03 adds 1.3–1.5x and, unlike step 02, holds its speed as the matrix grows. Step 04 is the big jump: 3.6–4.1x over step 03 and about 59x over naive, reaching half of cuBLAS at 2048³.
+Step 02 is about 10x faster than step 01, from changing only how threads map to the matrix. Step 03 adds 1.5x. Step 04 is the big jump: 3.2–3.7x over step 03 and about 50x over naive, reaching 76–81% of cuBLAS.
 
 Measurement notes:
 
-- The table above was measured with the first version of the benchmark (mean of 10 calls, no warm-up). The benchmark now uses the method in [How to run](#how-to-run), and the table will be re-measured with it.
-- 2048³ is the most reliable size for comparing with cuBLAS, so the percentage column uses it. cuBLAS reached 6571–7176 GFLOPS there across runs, close to the T4's FP32 peak.
-- The T4 is a 70 W card and lowers its clock under sustained load. At 4096³ cuBLAS drops to about 4100 GFLOPS right after several seconds of slow naive runs, and step 04 drops too (3619 → 3057). Percentages at 4096³ (step 04: 75%) overstate the real gap.
-- At 1024³ cuBLAS is the first thing the benchmark runs, and each call takes under 1 ms. The GPU has likely not reached full clock yet, so cuBLAS measures low (2595 GFLOPS) and step 04 appears to beat it (140%). That comparison is not meaningful.
+- Each percentage compares a kernel with cuBLAS timed right before it, after a warm-up, so both run under the same GPU clock (method in [How to run](#how-to-run)). The percentages are now consistent across sizes, which they were not with the first version of the benchmark.
+- These are **sustained** numbers. The T4 is a 70 W card: in short bursts on a cool GPU, cuBLAS reached about 7200 GFLOPS at 2048³ in earlier runs, but under continuous load it settles near 4100 GFLOPS as the card lowers its clock to stay within power and temperature limits. All kernels here are measured in that sustained state.
 
 (Add a GFLOPS-vs-size plot here: `results/gflops.png`.)
 
@@ -46,8 +44,8 @@ Same algorithm, but `threadIdx.x` is mapped to the column of C. The 32 threads o
 | `A[row*K + k]` | 32 addresses, `K` floats apart | same address, broadcast |
 | `C[row*N + col]` | 32 addresses, `N` floats apart | 32 consecutive floats |
 
-- Measured on T4: 799 GFLOPS at 1024³ (13.2x step 01), 564 GFLOPS at 4096³ (9.1x).
-- GFLOPS falls as the matrix grows: each thread still streams a full row of A and column of B from global memory, and at larger sizes less of that data stays in the 4 MB L2 cache between reuses.
+- Measured on T4: 609 GFLOPS at 1024³ (10.1x step 01), 563 GFLOPS at 4096³ (9.1x).
+- GFLOPS falls slightly as the matrix grows (609 → 573 → 563): each thread still streams a full row of A and column of B from global memory, and at larger sizes less of that data stays in the 4 MB L2 cache between reuses.
 - Nsight Compute: pending (see step 01). Compare `Memory Throughput` and `L1/TEX sectors per request` with step 01.
 - Remaining bottleneck: every element of A and B is still loaded from global memory `N` or `M` times. Step 03 loads tiles into shared memory and reuses them.
 
@@ -62,8 +60,8 @@ Each 32×32 thread block computes a 32×32 tile of C and walks along K in steps 
 
 Every value loaded from global memory is reused 32 times inside the block, so global memory traffic drops by about 32x versus step 02. In the inner loop, `As[ty][k]` is a broadcast and `Bs[k][tx]` reads 32 consecutive floats, so there are no shared-memory bank conflicts. Out-of-range elements are loaded as zero, so sizes that are not multiples of 32 stay correct.
 
-- Measured on T4: 855 GFLOPS at 4096³, 1.52x step 02 and 13.9x step 01. At 1024³ the gain is only 1.04x: step 02 was already at its best size there (799 GFLOPS), with many of its repeated loads served from the L2 cache.
-- GFLOPS no longer drops with matrix size (827 → 894 → 855), since global memory traffic no longer grows with the cache misses that hurt step 02.
+- Measured on T4: 853 GFLOPS at 4096³, 1.52x step 02 and 13.8x step 01; 1.45–1.52x step 02 at every size.
+- GFLOPS stays nearly flat with matrix size (886 → 873 → 853), since each value loaded from global memory is reused 32 times regardless of how much fits in L2.
 - Why only 1.5x and not 32x: the bottleneck moved from global memory to the SM itself.
     - Each multiply-add still needs two shared-memory loads, so shared-memory bandwidth and load instructions now limit speed.
     - A 32×32 block has 1024 threads, which is the per-SM maximum on Turing (sm_75). Only one block fits per SM, so during each `__syncthreads()` there is no other block to keep the SM busy.
@@ -86,7 +84,7 @@ Each block computes a 128×128 tile of C with 256 threads, so each thread comput
 
 `ptxas` reports 128 registers per thread and no register spills on sm_75. Index math was checked with a thread-by-thread CPU simulation, including sizes that are not multiples of the tile.
 
-- Measured on T4: 3619 GFLOPS at 2048³, 4.1x step 03 and 59x step 01, about 50% of cuBLAS.
+- Measured on T4: 3260 GFLOPS at 2048³, 3.7x step 03 and 54x step 01, 81% of cuBLAS.
 - Nsight Compute: pending (see step 01).
 - Expected remaining bottleneck: A is read from shared memory one float at a time with a stride of 8, and global loads of A are only 32 bytes wide. Step 05 stores A transposed and uses `float4` loads.
 
