@@ -19,7 +19,8 @@ Filled in as each project is benchmarked. All numbers list the GPU, CUDA version
 | Project | Best result | GPU |
 |---|---|---|
 | SGEMM (2048³, FP32) | ~90% of cuBLAS (6 steps; 59x over naive) | Tesla T4, CUDA 13.0 |
-| Softmax / LayerNorm | TBD GB/s (TBD % of peak bandwidth) | TBD |
+| Softmax (FP32) | 98–102% of copy bandwidth for rows up to 8192 columns; 64% for 32768 (6–8x over naive) | Tesla T4, CUDA 13.0 |
+| LayerNorm | TBD | TBD |
 | DDP training (2 GPUs) | TBD tokens/s, TBD scaling efficiency | TBD |
 
 <picture>

@@ -2,7 +2,7 @@
 
 Memory-bandwidth-bound kernels used in every transformer layer, optimized step by step and later exposed to PyTorch as a C++/CUDA extension.
 
-Status: softmax steps 01–04 measured on a Tesla T4; step 05 (register kernel + dispatcher) implemented, results pending.
+Status: softmax done (steps 01–05, measured on a Tesla T4): copy-speed for rows up to 8192 columns. Next: LayerNorm.
 
 ## Softmax
 
@@ -22,21 +22,22 @@ Every kernel is checked against a double-precision CPU reference. Timing uses th
 
 ### Results
 
-GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0. Raw data: [`softmax/results/kaggle-t4.csv`](softmax/results/kaggle-t4.csv). Cells show effective bandwidth in GB/s and, in parentheses, % of the copy baseline. The 2048×8192 column was added with step 05 and will be filled by the next run.
+GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0. Raw data: [`softmax/results/kaggle-t4.csv`](softmax/results/kaggle-t4.csv). Cells show effective bandwidth in GB/s and, in parentheses, % of the copy baseline.
 
 | Kernel | 8192×256 | 4096×1024 | 4096×4096 | 2048×8192 | 1024×32768 | Main change |
 |---|---|---|---|---|---|---|
-| copy (baseline) | 228 | 232 | 232 | TBD | 234 | reads x and writes y once |
-| 01 naive | 40 (17%) | 38 (16%) | 38 (16%) | TBD | 20 (9%) | one thread per row |
-| 02 block + shared memory | 92 (40%) | 219 (94%) | 167 (72%) | TBD | 117 (50%) | one block per row, coalesced, tree reduction |
-| 03 warp shuffle | 118 (52%) | 243 (105%) | 169 (73%) | TBD | 117 (50%) | reductions in registers with `__shfl_xor_sync` |
-| 04 online softmax | 105 (46%) | 218 (94%) | 181 (78%) | TBD | **150 (64%)** | max and sum in one pass |
-| 05 auto: row in registers + dispatcher | TBD | TBD | TBD | TBD | TBD | `float4`, read x once; picks the kernel by row length |
+| copy (baseline) | 228 | 232 | 232 | 233 | 234 | reads x and writes y once |
+| 01 naive | 40 (17%) | 38 (16%) | 38 (16%) | 31 (13%) | 20 (9%) | one thread per row |
+| 02 block + shared memory | 91 (40%) | 218 (94%) | 167 (72%) | 128 (55%) | 117 (50%) | one block per row, coalesced, tree reduction |
+| 03 warp shuffle | 123 (54%) | 243 (105%) | 169 (73%) | 128 (55%) | 117 (50%) | reductions in registers with `__shfl_xor_sync` |
+| 04 online softmax | 108 (47%) | 217 (93%) | 181 (78%) | 161 (69%) | 150 (64%) | max and sum in one pass |
+| **05 auto: row in registers + dispatcher** | **232 (102%)** | **228 (98%)** | **232 (100%)** | **231 (100%)** | **150 (64%)** | `float4`, read x once; picks the kernel by row length |
 
 The copy reaches about 230 GB/s, roughly 72% of the T4's 320 GB/s peak, which is typical for a real kernel.
 
 What the numbers show:
 
+- **Step 05 reaches copy speed (98–102%) for every row length up to 8192**, 6–8x faster than naive and 1.3–1.9x faster than the best earlier step. Vocabulary-sized rows stay at 64% with online softmax.
 - **Coalescing is worth 3–6x** (step 01 → 02), as in SGEMM.
 - **Row length decides everything after that.** Step 03 reads x three times, but at 4096×1024 it matches the copy (105%): a 4 KB row stays in cache between the three passes, so DRAM sees x only once. At 1024×32768 a row is 128 KB, every pass goes back to DRAM, and the kernel moves 3 reads + 1 write instead of 1 + 1. It reaches exactly the predicted 2/4 = **50%** of the copy. 4096×4096 (16 KB rows) sits in between at 73%.
 - **Online softmax wins only where DRAM is the bottleneck.** For 128 KB rows it goes from 50% to 64% of the copy (predicted 67%) and for 16 KB rows from 73% to 78%. Where rows already stay in cache (4 KB) or are short (256), DRAM traffic was not the limit, and the extra work of online softmax (a branch per element, two `exp` calls per pair merge) makes it slower than step 03. Production libraries pick a kernel by row length for exactly this reason.
@@ -74,7 +75,10 @@ Two partial pairs merge the same way, `m = max(m1, m2)`, `d = d1·exp(m1 − m) 
 `launch_softmax_auto()` picks the configuration from the row length; rows whose length is not a multiple of 4 cannot use `float4` and fall back to step 03 (≤ 2048 columns) or step 04. The benchmark logs which path each shape uses. Slots past the end of a row hold −FLT_MAX, which adds exp(−huge) = 0 to the sum and is never written. All seven configurations compile with 18–67 registers and no spills; a CPU simulation checked results, `float4` bounds, that every output is written exactly once, and that idle warps in the last block write nothing.
 
 - Prediction: close to the copy (≥ 90%) for rows up to 8192 columns, since x is read once; short rows should improve most, because one warp per row stops leaving most of a 256-thread block idle. 1024×32768 stays at step 04's 64%.
-- Measured on T4: TBD
+- Measured on T4: 98–102% of the copy at 256, 1024, 4096 and 8192 columns. The biggest gains are where predicted: short rows 54% → 102% (1.9x over step 03, from one warp per row), and 8192-column rows 69% → 100% (1.4x over step 04, from reading x once).
+- The dispatcher logged the intended path for every shape, and 1024×32768 matched step 04 exactly (64%).
+- One honest exception: at 4096×1024, step 03 is 7% faster (105% vs 98%). Those 4 KB rows already stay in cache, so reading x three times costs nothing, and the plain copy is not the true hardware limit. A dispatcher tuned only for the T4 could send 513–1024-column rows to step 03; I kept the register path because it does not depend on cache behaviour that changes between GPUs.
+- Remaining gap for vocabulary-sized rows: a row of 32768 floats does not fit in registers (128 per thread) or a block's shared memory on the T4 (48 KB by default). Splitting such a row across several blocks, with a second small kernel to combine their (max, sum) pairs, would be the next step.
 
 ### Run
 
