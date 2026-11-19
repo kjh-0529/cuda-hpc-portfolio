@@ -20,6 +20,7 @@ Step 02 is 9–13x faster than step 01, from changing only how threads map to th
 
 Measurement notes:
 
+- The table above was measured with the first version of the benchmark (mean of 10 calls, no warm-up). The benchmark now uses the method in [How to run](#how-to-run), and the table will be re-measured with it.
 - 2048³ is the most reliable size for comparing with cuBLAS, so the percentage column uses it. cuBLAS reached 6571–7176 GFLOPS there across runs, close to the T4's FP32 peak.
 - The T4 is a 70 W card and lowers its clock under sustained load. At 4096³ cuBLAS drops to about 4100 GFLOPS right after several seconds of slow naive runs, and step 04 drops too (3619 → 3057). Percentages at 4096³ (step 04: 75%) overstate the real gap.
 - At 1024³ cuBLAS is the first thing the benchmark runs, and each call takes under 1 ms. The GPU has likely not reached full clock yet, so cuBLAS measures low (2595 GFLOPS) and step 04 appears to beat it (140%). That comparison is not meaningful.
@@ -98,6 +99,12 @@ cmake --build ../build -j
 ```
 
 The benchmark checks every kernel against cuBLAS (`correct` column) and exits with a non-zero code if any kernel is wrong.
+
+How times are measured:
+
+- **Warm-up:** before each size the GPU runs cuBLAS for 2 s (first size) or 0.5 s, so clocks are at full speed when timing starts.
+- **Median of batches:** each time is the median of 5 batches. A batch repeats the kernel enough times to take about 50 ms, so fast kernels are not dominated by launch overhead and slow kernels finish quickly.
+- **Adjacent cuBLAS:** cuBLAS is re-timed right before every kernel. `pct_of_cublas` compares the kernel with that run, and `cublas_gflops` shows its value. This keeps the comparison fair when the GPU lowers its clock under sustained load.
 
 Profile one kernel with Nsight Compute:
 

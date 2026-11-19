@@ -3,6 +3,10 @@
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
 #include "cuda_check.cuh"
 
 class GpuTimer {
@@ -34,15 +38,44 @@ private:
     cudaEvent_t stop_;
 };
 
-// Runs fn() `warmup` times untimed, then `iters` times timed.
-// Returns the average milliseconds per call.
+// Keeps the GPU busy with fn() for at least `ms` milliseconds so that clocks have
+// ramped up before measurement starts.
 template <typename Fn>
-float time_average_ms(Fn fn, int warmup = 2, int iters = 10) {
-    for (int i = 0; i < warmup; ++i) fn();
+void warm_up_gpu(Fn fn, float ms) {
+    GpuTimer timer;
+    float elapsed = 0.0f;
+    while (elapsed < ms) {
+        timer.start();
+        for (int i = 0; i < 10; ++i) fn();
+        timer.stop();
+        elapsed += timer.elapsed_ms();
+    }
+}
+
+// Robust timing: the number of calls per batch is chosen so that each batch takes
+// about `target_ms`, then `reps` batches are timed and the median per-call time
+// is returned. Fast kernels get many calls per batch (less launch-overhead noise);
+// slow kernels get few (shorter runs, less heating of the GPU).
+template <typename Fn>
+float time_median_ms(Fn fn, float target_ms = 50.0f, int reps = 5) {
+    fn();  // warm-up: first launch, caches, lazy initialization
     CUDA_CHECK(cudaDeviceSynchronize());
+
     GpuTimer timer;
     timer.start();
-    for (int i = 0; i < iters; ++i) fn();
+    fn();
     timer.stop();
-    return timer.elapsed_ms() / static_cast<float>(iters);
+    const float est = std::max(timer.elapsed_ms(), 1e-3f);
+    const int iters = std::clamp(static_cast<int>(std::ceil(target_ms / est)), 1, 10000);
+    if (est > 500.0f) reps = std::min(reps, 3);  // very slow kernels: keep runs short
+
+    std::vector<float> per_call(reps);
+    for (int r = 0; r < reps; ++r) {
+        timer.start();
+        for (int i = 0; i < iters; ++i) fn();
+        timer.stop();
+        per_call[r] = timer.elapsed_ms() / static_cast<float>(iters);
+    }
+    std::nth_element(per_call.begin(), per_call.begin() + reps / 2, per_call.end());
+    return per_call[reps / 2];
 }
