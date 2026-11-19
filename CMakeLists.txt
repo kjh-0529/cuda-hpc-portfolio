@@ -23,3 +23,4 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -lineinfo")
 find_package(CUDAToolkit REQUIRED)
 
 add_subdirectory(01-sgemm)
+add_subdirectory(02-llm-kernels)

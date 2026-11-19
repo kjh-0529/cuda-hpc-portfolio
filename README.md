@@ -9,7 +9,7 @@ Each project starts from a simple, correct baseline and improves it one step at 
 | # | Project | What it shows | Baseline | Status |
 |---|---|---|---|---|
 | 1 | [SGEMM optimization](01-sgemm/) | Memory hierarchy, tiling, register blocking, profiling | cuBLAS | Done (profiling pending) |
-| 2 | [LLM kernels: Softmax & LayerNorm](02-llm-kernels/) | Warp-level reductions, kernel fusion, PyTorch C++/CUDA extension | PyTorch | Planned |
+| 2 | [LLM kernels: Softmax & LayerNorm](02-llm-kernels/) | Warp-level reductions, kernel fusion, PyTorch C++/CUDA extension | Memory copy, PyTorch | In progress |
 | 3 | [Distributed training with PyTorch DDP](03-ddp-training/) | Multi-GPU training, NCCL communication, mixed precision, scaling analysis | 1 GPU | Planned |
 
 ## Results summary
@@ -35,6 +35,7 @@ Requires the CUDA Toolkit (12.x or newer), CMake 3.24+, and an NVIDIA GPU.
 cmake -S . -B build -DCMAKE_CUDA_ARCHITECTURES=native
 cmake --build build -j
 ./build/01-sgemm/sgemm_bench
+./build/02-llm-kernels/softmax/softmax_bench
 ```
 
 Without `-DCMAKE_CUDA_ARCHITECTURES`, the build targets T4, A100, RTX 30xx and RTX 40xx (sm_75, 80, 86, 89).
