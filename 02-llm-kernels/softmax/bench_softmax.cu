@@ -9,7 +9,7 @@
 // Measurement follows 01-sgemm: GPU warm-up before each shape, median of 5
 // batches of ~50 ms, and the copy baseline re-timed right before every kernel.
 //
-// Usage: ./softmax_bench [ROWSxCOLS ...]   (default: 8192x256 4096x1024 4096x4096 1024x32768)
+// Usage: ./softmax_bench [ROWSxCOLS ...]   (default: 8192x256 4096x1024 4096x4096 2048x8192 1024x32768)
 
 #include <cuda_runtime.h>
 
@@ -27,6 +27,7 @@
 #include "kernels/02_block_smem.cuh"
 #include "kernels/03_warp_shuffle.cuh"
 #include "kernels/04_online.cuh"
+#include "kernels/05_registers.cuh"
 // Add new steps here.
 
 struct KernelEntry {
@@ -39,6 +40,7 @@ static const KernelEntry kKernels[] = {
     {"02_block_smem", launch_softmax_block_smem},
     {"03_warp_shuffle", launch_softmax_warp_shuffle},
     {"04_online", launch_softmax_online},
+    {"05_auto", launch_softmax_auto},
 };
 
 struct Shape {
@@ -72,7 +74,7 @@ int main(int argc, char** argv) {
         }
         shapes.push_back(sh);
     }
-    if (shapes.empty()) shapes = {{8192, 256}, {4096, 1024}, {4096, 4096}, {1024, 32768}};
+    if (shapes.empty()) shapes = {{8192, 256}, {4096, 1024}, {4096, 4096}, {2048, 8192}, {1024, 32768}};
 
     cudaDeviceProp prop{};
     CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
@@ -108,6 +110,8 @@ int main(int argc, char** argv) {
         std::printf("copy,%d,%d,%.4f,%.1f,100.0,%.1f,ref\n", sh.rows, sh.cols, copy_ms,
                     copy_gbps, copy_gbps);
 
+        std::fprintf(stderr, "%dx%d: 05_auto uses %s\n", sh.rows, sh.cols,
+                     softmax_auto_path(sh.cols));
         for (const auto& kern : kKernels) {
             CUDA_CHECK(cudaMemset(dy, 0, bytes));
             kern.launch(dx, dy, sh.rows, sh.cols);
