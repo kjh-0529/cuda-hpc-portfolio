@@ -2,7 +2,7 @@
 
 Memory-bandwidth-bound kernels used in every transformer layer, optimized step by step and later exposed to PyTorch as a C++/CUDA extension.
 
-Status: softmax done (copy speed for rows up to 8192 columns on a Tesla T4). LayerNorm steps 01–03 implemented, results pending.
+Status: softmax and LayerNorm done on a Tesla T4, both at copy speed for rows up to 8192 columns. Next: PyTorch extension.
 
 ## Softmax
 
@@ -104,14 +104,20 @@ Inputs are `100 + uniform(-5, 5)`: a large mean relative to the spread. That is 
 
 ### Results
 
-GPU: TBD. Raw data: `layernorm/results/`.
+GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0. Raw data: [`layernorm/results/kaggle-t4.csv`](layernorm/results/kaggle-t4.csv). GB/s and, in parentheses, % of the copy baseline.
 
 | Kernel | 8192×256 | 4096×1024 | 4096×4096 | 2048×8192 | 1024×32768 | Main change |
 |---|---|---|---|---|---|---|
-| copy (baseline) | TBD | TBD | TBD | TBD | TBD | reads x and writes y once |
-| 01 two-pass | TBD | TBD | TBD | TBD | TBD | mean, then variance, then output: x read 3 times |
-| 02 Welford | TBD | TBD | TBD | TBD | TBD | mean and variance in one pass: x read 2 times |
-| 03 auto: row in registers + dispatcher | TBD | TBD | TBD | TBD | TBD | x read once; same dispatcher as softmax |
+| copy (baseline) | 228 | 232 | 232 | 232 | 234 | reads x and writes y once |
+| 01 two-pass | 124 (55%) | 241 (104%) | 177 (76%) | 126 (55%) | 111 (48%) | mean, then variance, then output: x read 3 times |
+| 02 Welford | 91 (40%) | 194 (84%) | 183 (79%) | 161 (69%) | 148 (63%) | mean and variance in one pass: x read 2 times |
+| **03 auto: row in registers + dispatcher** | **228 (100%)** | **225 (97%)** | **231 (100%)** | **233 (101%)** | **148 (63%)** | x read once; same dispatcher as softmax |
+
+The pattern is the same as for softmax, which confirms the explanation there:
+
+- **Step 03 runs at copy speed (97–101%) up to 8192 columns**, 1.3–1.8x faster than the better of steps 01 and 02.
+- **Welford helps only where DRAM is the limit:** 48% → 63% at 32768 columns (predicted 67%), 55% → 69% at 8192. On short or cache-resident rows it is slower than two-pass, because each element costs a division (`delta / n`) and the merge is heavier, and there is no DRAM time to hide that work behind.
+- **The same exception as softmax:** at 4096×1024 the two-pass kernel (104%) beats the register kernel (97%), since 4 KB rows stay in cache across its three passes.
 
 ### Steps
 
@@ -123,7 +129,8 @@ GPU: TBD. Raw data: `layernorm/results/`.
 
 Checks before running on a GPU: all nine kernel configurations compile with no register spills, and a float32 simulation of the Welford merge tree and the register kernel's statistics matched a double-precision reference within 2.3e-7 relative variance error.
 
-- Prediction: the same pattern as softmax. Step 02 helps long rows (about 50% → 67% of the copy at 32768 columns); step 03 reaches about 100% of the copy up to 8192 columns.
+- Prediction (before measuring): the same pattern as softmax. Step 02 helps long rows (about 50% → 67% at 32768 columns); step 03 reaches about 100% of the copy up to 8192 columns.
+- Measured: step 02 48% → 63% at 32768 columns; step 03 97–101% up to 8192 columns. All kernels passed the check against the double-precision reference on the `100 ± 5` inputs.
 
 ### Run
 
