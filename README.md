@@ -8,7 +8,7 @@ Each project starts from a simple, correct baseline and improves it one step at 
 
 | # | Project | What it shows | Baseline | Status |
 |---|---|---|---|---|
-| 1 | [SGEMM optimization](01-sgemm/) | Memory hierarchy, tiling, register blocking, profiling | cuBLAS | In progress |
+| 1 | [SGEMM optimization](01-sgemm/) | Memory hierarchy, tiling, register blocking, profiling | cuBLAS | Done (profiling pending) |
 | 2 | [LLM kernels: Softmax & LayerNorm](02-llm-kernels/) | Warp-level reductions, kernel fusion, PyTorch C++/CUDA extension | PyTorch | Planned |
 | 3 | [MPI + CUDA 2D Jacobi solver](03-mpi-jacobi/) | Multi-GPU domain decomposition, halo exchange, compute/communication overlap | CPU (OpenMP) | Planned |
 
@@ -18,7 +18,7 @@ Filled in as each project is benchmarked. All numbers list the GPU, CUDA version
 
 | Project | Best result | GPU |
 |---|---|---|
-| SGEMM (2048³, FP32) | 87% of cuBLAS so far (step 05 of 6; 59x over naive) | Tesla T4, CUDA 13.0 |
+| SGEMM (2048³, FP32) | ~90% of cuBLAS (6 steps; 59x over naive) | Tesla T4, CUDA 13.0 |
 | Softmax / LayerNorm | TBD GB/s (TBD % of peak bandwidth) | TBD |
 | Jacobi (2 GPUs) | TBD strong-scaling efficiency | TBD |
 

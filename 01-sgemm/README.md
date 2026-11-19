@@ -1,4 +1,4 @@
-# SGEMM Optimization: from naive to cuBLAS-level
+# SGEMM Optimization: from naive to ~90% of cuBLAS
 
 FP32 matrix multiplication `C = alpha * A * B + beta * C` (row-major), optimized step by step and compared against cuBLAS.
 
@@ -8,19 +8,20 @@ Square matrices, FP32. GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0, driver 580. R
 
 | Kernel | 1024³ GFLOPS | 2048³ GFLOPS | 4096³ GFLOPS | % of cuBLAS (1024³ / 2048³ / 4096³) | Main change |
 |---|---|---|---|---|---|
-| cuBLAS | 3825 | 4180 | 4245 | 100 | reference |
+| cuBLAS | 3825 | 4082 | 4170 | 100 | reference |
 | 01 naive | 60 | 61 | 62 | 1.6 / 1.5 / 1.5 | one thread per output element |
-| 02 coalesced | 609 | 581 | 571 | 16 / 14 / 14 | coalesced global memory access |
-| 03 shared-memory tiling | 900 | 881 | 865 | 25 / 21 / 21 | reuse tiles of A and B from shared memory |
-| 04 register blocking | 2864 | 3310 | 3146 | 82 / 81 / 76 | each thread computes an 8×8 block of C from registers |
-| 05 vectorized loads | 3329 | 3603 | 3472 | 92 / 87 / 84 | `float4` loads, A tile transposed in shared memory |
-| 06 double buffering | TBD | TBD | TBD | TBD | load the next tile while computing the current one |
+| 02 coalesced | 607 | 575 | 561 | 16 / 14 / 14 | coalesced global memory access |
+| 03 shared-memory tiling | 887 | 873 | 854 | 24 / 22 / 21 | reuse tiles of A and B from shared memory |
+| 04 register blocking | 2888 | 3264 | 3095 | 77 / 81 / 77 | each thread computes an 8×8 block of C from registers |
+| 05 vectorized loads | 3279 | 3586 | 3423 | 87 / 90 / 85 | `float4` loads, A tile transposed in shared memory |
+| 06 double buffering | 3304 | 3585 | 3381 | 88 / 89 / 84 | load the next tile while computing the current one |
 
-Step 02 is about 10x faster than step 01, from changing only how threads map to the matrix. Step 03 adds 1.5x. Step 04 is the big jump: 3.2–3.8x over step 03. Step 05 adds 1.09–1.16x, reaching 84–92% of cuBLAS and about 59x naive at 2048³.
+Step 02 is about 10x faster than step 01, from changing only how threads map to the matrix. Step 03 adds 1.5x. Step 04 is the big jump: 3.3–3.7x over step 03. Step 05 adds 1.10–1.14x, reaching 85–90% of cuBLAS and about 59x naive at 2048³. Step 06 gives no measurable further gain (see its section for why).
 
 Measurement notes:
 
 - Each percentage compares a kernel with cuBLAS timed right before it, after a warm-up, so both run under the same GPU clock (method in [How to run](#how-to-run)). The percentages are now consistent across sizes, which they were not with the first version of the benchmark.
+- Run-to-run variation is up to about 3–5% for the same kernel (step 05 at 1024³: 3329 vs 3279 GFLOPS in two runs), so differences smaller than that are not meaningful.
 - These are **sustained** numbers. The T4 is a 70 W card: in short bursts on a cool GPU, cuBLAS reached about 7200 GFLOPS at 2048³ in earlier runs, but under continuous load it settles near 4100 GFLOPS as the card lowers its clock to stay within power and temperature limits. All kernels here are measured in that sustained state.
 
 (Add a GFLOPS-vs-size plot here: `results/gflops.png`.)
@@ -44,8 +45,8 @@ Same algorithm, but `threadIdx.x` is mapped to the column of C. The 32 threads o
 | `A[row*K + k]` | 32 addresses, `K` floats apart | same address, broadcast |
 | `C[row*N + col]` | 32 addresses, `N` floats apart | 32 consecutive floats |
 
-- Measured on T4: 609 GFLOPS at 1024³ (10.1x step 01), 571 GFLOPS at 4096³ (9.3x).
-- GFLOPS falls slightly as the matrix grows (609 → 581 → 571): each thread still streams a full row of A and column of B from global memory, and at larger sizes less of that data stays in the 4 MB L2 cache between reuses.
+- Measured on T4: 607 GFLOPS at 1024³ (10.1x step 01), 561 GFLOPS at 4096³ (9.1x).
+- GFLOPS falls slightly as the matrix grows (607 → 575 → 561): each thread still streams a full row of A and column of B from global memory, and at larger sizes less of that data stays in the 4 MB L2 cache between reuses.
 - Nsight Compute: pending (see step 01). Compare `Memory Throughput` and `L1/TEX sectors per request` with step 01.
 - Remaining bottleneck: every element of A and B is still loaded from global memory `N` or `M` times. Step 03 loads tiles into shared memory and reuses them.
 
@@ -60,8 +61,8 @@ Each 32×32 thread block computes a 32×32 tile of C and walks along K in steps 
 
 Every value loaded from global memory is reused 32 times inside the block, so global memory traffic drops by about 32x versus step 02. In the inner loop, `As[ty][k]` is a broadcast and `Bs[k][tx]` reads 32 consecutive floats, so there are no shared-memory bank conflicts. Out-of-range elements are loaded as zero, so sizes that are not multiples of 32 stay correct.
 
-- Measured on T4: 865 GFLOPS at 4096³, 1.52x step 02 and 14.0x step 01; 1.48–1.52x step 02 at every size.
-- GFLOPS stays nearly flat with matrix size (900 → 881 → 865), since each value loaded from global memory is reused 32 times regardless of how much fits in L2.
+- Measured on T4: 854 GFLOPS at 4096³, 1.52x step 02 and 13.9x step 01; 1.46–1.52x step 02 at every size.
+- GFLOPS stays nearly flat with matrix size (887 → 873 → 854), since each value loaded from global memory is reused 32 times regardless of how much fits in L2.
 - Why only 1.5x and not 32x: the bottleneck moved from global memory to the SM itself.
     - Each multiply-add still needs two shared-memory loads, so shared-memory bandwidth and load instructions now limit speed.
     - A 32×32 block has 1024 threads, which is the per-SM maximum on Turing (sm_75). Only one block fits per SM, so during each `__syncthreads()` there is no other block to keep the SM busy.
@@ -84,7 +85,7 @@ Each block computes a 128×128 tile of C with 256 threads, so each thread comput
 
 `ptxas` reports 128 registers per thread and no register spills on sm_75. Index math was checked with a thread-by-thread CPU simulation, including sizes that are not multiples of the tile.
 
-- Measured on T4: 3310 GFLOPS at 2048³, 3.8x step 03 and 54x step 01, 81% of cuBLAS.
+- Measured on T4: 3264 GFLOPS at 2048³, 3.7x step 03 and 54x step 01, 81% of cuBLAS.
 - Nsight Compute: pending (see step 01).
 - Expected remaining bottleneck: A is read from shared memory one float at a time with a stride of 8, and global loads of A are only 32 bytes wide. Step 05 stores A transposed and uses `float4` loads.
 
@@ -103,7 +104,7 @@ Same tiling as step 04 (128×128 block tile, 8×8 results per thread, 256 thread
 
 `float4` needs 16-byte alignment, so the kernel requires `K % 4 == 0` and `N % 4 == 0`; other sizes fall back to the step 04 kernel. `ptxas` reports 113 registers per thread and no spills on sm_75. A thread-by-thread CPU simulation checked results, `float4` alignment and bounds, including sizes that are not multiples of the tile.
 
-- Measured on T4: 3603 GFLOPS at 2048³, 1.09x step 04 and 59x step 01, 87% of cuBLAS. The gain is largest at 1024³ (1.16x, 92% of cuBLAS).
+- Measured on T4: 3586 GFLOPS at 2048³, 1.10x step 04 and 59x step 01, 90% of cuBLAS. The gain over step 04 is largest at 1024³ (1.14x), where loads are a bigger share of the work.
 - Nsight Compute: pending (see step 01).
 - Known cost: the transposed stores into `As` have a 2-way shared-memory bank conflict (two threads with the same row write different k into the same bank). It happens once per tile, against 32 conflict-free `float4` reads.
 
@@ -122,9 +123,10 @@ The global loads for the next tile are in flight while each thread does the 512 
 
 One barrier per tile is enough: tile t+1 is written into the buffer that was last read for tile t-1, and every thread passed the barrier at the end of iteration t-1 only after finishing that computation. A CPU simulation checked results, `float4` alignment and bounds, and found no shared-memory race between barriers (its race checker was confirmed to flag a deliberately racy access).
 
-- Measured on T4: TBD
-- Nsight Compute: pending (see step 01).
-- Expected gain: modest. Two blocks per SM already hide part of the load latency in step 05, so double buffering mainly removes the remaining stalls at each barrier.
+- Measured on T4: 3585 GFLOPS at 2048³ versus 3586 for step 05; +0.7% at 1024³ and −1.2% at 4096³. That is within run-to-run variation, so double buffering gives **no measurable gain** here.
+- Why: the latency it hides was already hidden. With 2 blocks per SM, while one block waits at a barrier or for global memory the other computes, and step 05 already cut global loads to one `float4` of A and B per thread per tile. What limits steps 05 and 06 is the SM's own work (multiply-adds plus shared-memory loads) at the T4's power-limited sustained clock, which overlap cannot reduce.
+- Nsight Compute: pending (see step 01). The profile should confirm this: expect low "stall long scoreboard" (global-memory waits) already in step 05.
+- Possible next steps beyond this project: prefetch shared-memory fragments into registers for the next k (overlapping shared-memory latency too), warp-level tiling, or tensor cores via FP16/TF32 (TF32 needs sm_80).
 
 ## How to run
 
