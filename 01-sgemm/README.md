@@ -12,7 +12,7 @@ Square matrices, FP32. GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0, driver 580. R
 | 01 naive | 61 | 61 | 62 | 1.5 | one thread per output element |
 | 02 coalesced | 799 | 593 | 564 | 13.5 | coalesced global memory access |
 | 03 shared-memory tiling | 827 | 894 | 855 | 20.5 | reuse tiles of A and B from shared memory |
-| 04 register blocking | — | — | — | — | each thread computes a small block of C |
+| 04 register blocking | TBD | TBD | TBD | TBD | each thread computes an 8×8 block of C from registers |
 | 05 vectorized loads | — | — | — | — | `float4` loads, no shared-memory bank conflicts |
 | 06 double buffering | — | — | — | — | overlap tile loads with computation |
 
@@ -67,6 +67,26 @@ Every value loaded from global memory is reused 32 times inside the block, so gl
     - A 32×32 block has 1024 threads, which is the per-SM maximum on Turing (sm_75). Only one block fits per SM, so during each `__syncthreads()` there is no other block to keep the SM busy.
 - Nsight Compute: pending (see step 01).
 - Next: step 04 makes each thread compute several elements of C from values held in registers, cutting shared-memory loads per multiply-add and using smaller blocks.
+
+### 04 register blocking
+
+Each block computes a 128×128 tile of C with 256 threads, so each thread computes an 8×8 sub-block (64 results instead of 1). For each step of 8 along K:
+
+1. The block loads a 128×8 tile of A and an 8×128 tile of B into shared memory (4 + 4 elements per thread).
+2. For each k, a thread copies 8 values of A and 8 of B from shared memory into registers, then does 8×8 = 64 multiply-adds from registers.
+
+| | Step 03 | Step 04 |
+|---|---|---|
+| Results per thread | 1 | 64 |
+| Shared-memory loads per multiply-add | 2 | 0.25 |
+| Threads per block | 1024 | 256 |
+| Blocks per T4 SM | 1 | 2 (128 registers/thread, 8 KB shared memory/block) |
+
+`ptxas` reports 128 registers per thread and no register spills on sm_75. Index math was checked with a thread-by-thread CPU simulation, including sizes that are not multiples of the tile.
+
+- Measured on T4: TBD
+- Nsight Compute: pending (see step 01).
+- Expected remaining bottleneck: A is read from shared memory one float at a time with a stride of 8, and global loads of A are only 32 bytes wide. Step 05 stores A transposed and uses `float4` loads.
 
 ## How to run
 
