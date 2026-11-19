@@ -4,17 +4,24 @@ FP32 matrix multiplication `C = alpha * A * B + beta * C` (row-major), optimized
 
 ## Results
 
-Square matrices, FP32. GPU: TBD, CUDA: TBD.
+Square matrices, FP32. GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0, driver 580. Raw data: [`results/kaggle-t4.csv`](results/kaggle-t4.csv).
 
-| Kernel | GFLOPS (4096³) | % of cuBLAS | Main change |
-|---|---|---|---|
-| cuBLAS | TBD | 100 | reference |
-| 01 naive | TBD | TBD | one thread per output element |
-| 02 coalesced | TBD | TBD | coalesced global memory access |
-| 03 shared-memory tiling | — | — | reuse tiles of A and B from shared memory |
-| 04 register blocking | — | — | each thread computes a small block of C |
-| 05 vectorized loads | — | — | `float4` loads, no shared-memory bank conflicts |
-| 06 double buffering | — | — | overlap tile loads with computation |
+| Kernel | 1024³ GFLOPS | 2048³ GFLOPS | 4096³ GFLOPS | % of cuBLAS (4096³) | Main change |
+|---|---|---|---|---|---|
+| cuBLAS | 2593 | 7176 | 4058 | 100 | reference |
+| 01 naive | 58 | 62 | 62 | 1.5 | one thread per output element |
+| 02 coalesced | 744 | 579 | 549 | 13.5 | coalesced global memory access |
+| 03 shared-memory tiling | — | — | — | — | reuse tiles of A and B from shared memory |
+| 04 register blocking | — | — | — | — | each thread computes a small block of C |
+| 05 vectorized loads | — | — | — | — | `float4` loads, no shared-memory bank conflicts |
+| 06 double buffering | — | — | — | — | overlap tile loads with computation |
+
+Step 02 is 9–13x faster than step 01 at every size, from changing only how threads map to the matrix.
+
+Measurement notes:
+
+- The T4 is a 70 W card and lowers its clock under sustained load. cuBLAS reached 7176 GFLOPS at 2048³ but only 4058 GFLOPS at 4096³, right after several seconds of slow naive runs. The 4096³ percentages are therefore approximate; compare kernels within the same run.
+- At 1024³ a cuBLAS call takes under 1 ms, so launch overhead lowers its GFLOPS.
 
 (Add a GFLOPS-vs-size plot here: `results/gflops.png`.)
 
@@ -37,6 +44,8 @@ Same algorithm, but `threadIdx.x` is mapped to the column of C. The 32 threads o
 | `A[row*K + k]` | 32 addresses, `K` floats apart | same address, broadcast |
 | `C[row*N + col]` | 32 addresses, `N` floats apart | 32 consecutive floats |
 
+- Measured on T4: 744 GFLOPS at 1024³ (12.7x step 01), 549 GFLOPS at 4096³ (8.9x).
+- GFLOPS falls as the matrix grows: each thread still streams a full row of A and column of B from global memory, and at larger sizes less of that data stays in the 4 MB L2 cache between reuses.
 - Nsight Compute: TBD (compare `Memory Throughput` and `L1/TEX sectors per request` with step 01)
 - Remaining bottleneck: every element of A and B is still loaded from global memory `N` or `M` times. Step 03 loads tiles into shared memory and reuses them.
 
