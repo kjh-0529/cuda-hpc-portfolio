@@ -2,7 +2,7 @@
 
 Memory-bandwidth-bound kernels used in every transformer layer, optimized step by step and later exposed to PyTorch as a C++/CUDA extension.
 
-Status: softmax and LayerNorm done on a Tesla T4, both at copy speed for rows up to 8192 columns. PyTorch extension implemented, results pending.
+Status: done. Softmax and LayerNorm run at copy speed for rows up to 8192 columns on a Tesla T4, and as PyTorch ops they are 0.92–1.51x the speed of PyTorch's own kernels (26/26 tests pass).
 
 ## Softmax
 
@@ -161,12 +161,18 @@ Tests (`torch_ext/tests/test_ops.py`) compare both ops with PyTorch computed in 
 
 ### Results
 
-GPU: TBD.
+Tesla T4, PyTorch 2.11.0 (CUDA 13.0) on Kaggle. All 26 tests pass. Raw data: [`torch_ext/results/kaggle-t4.csv`](torch_ext/results/kaggle-t4.csv). Cells show speed relative to PyTorch (above 1.00 = ours is faster) and, in parentheses, GB/s ours / PyTorch.
 
 | Op | 8192×256 | 4096×1024 | 4096×4096 | 2048×8192 | 1024×32768 |
 |---|---|---|---|---|---|
-| softmax: ours vs PyTorch | TBD | TBD | TBD | TBD | TBD |
-| LayerNorm: ours vs PyTorch | TBD | TBD | TBD | TBD | TBD |
+| softmax | 1.02x (232 / 228) | 1.06x (227 / 215) | 0.96x (232 / 242) | 0.95x (231 / 244) | **1.18x** (150 / 127) |
+| LayerNorm | **1.51x** (229 / 152) | 0.99x (224 / 227) | **1.40x** (231 / 165) | **1.44x** (233 / 162) | 0.92x (147 / 160) |
+
+What this shows:
+
+- **LayerNorm is 1.4–1.5x faster than PyTorch at 256, 4096 and 8192 columns.** PyTorch reaches only 152–165 GB/s on those shapes, while the register kernel stays at copy speed.
+- **Softmax is on par with PyTorch for short and medium rows and 1.18x faster for vocabulary-sized rows**, where online softmax reads x twice and PyTorch's kernel reaches only 127 GB/s.
+- **PyTorch wins in two places, and both are informative.** For 4096- and 8192-column softmax it reaches 242–244 GB/s, *above* the 232 GB/s of `cudaMemcpy`. So the copy baseline used throughout this project is not the hardware ceiling: about 5% more bandwidth is available, and "100% of copy" means close to, not at, the limit. For 32768-column LayerNorm, PyTorch (160 GB/s) beats Welford (147 GB/s), which suggests splitting long rows across blocks (listed below) is worth doing.
 
 ### Run
 
@@ -180,4 +186,6 @@ python bench_torch.py --out results/<gpu-name>.csv
 
 - FP16 / BF16 inputs
 - Backward passes, so the ops can be used in training (`torch.autograd.Function`)
+- Long rows (32768 columns): split each row across several blocks and combine their partial results, to read x once even when it does not fit in registers
+- A better bandwidth ceiling than `cudaMemcpy` (a tuned copy kernel), since PyTorch softmax exceeds it by about 5%
 - Optional: the same softmax in Triton

@@ -9,7 +9,7 @@ Each project starts from a simple, correct baseline and improves it one step at 
 | # | Project | What it shows | Baseline | Status |
 |---|---|---|---|---|
 | 1 | [SGEMM optimization](01-sgemm/) | Memory hierarchy, tiling, register blocking, profiling | cuBLAS | Done (profiling pending) |
-| 2 | [LLM kernels: Softmax & LayerNorm](02-llm-kernels/) | Warp-level reductions, kernel fusion, PyTorch C++/CUDA extension | Memory copy, PyTorch | In progress |
+| 2 | [LLM kernels: Softmax & LayerNorm](02-llm-kernels/) | Warp-level reductions, kernel fusion, PyTorch C++/CUDA extension | Memory copy, PyTorch | Done |
 | 3 | [Distributed training with PyTorch DDP](03-ddp-training/) | Multi-GPU training, NCCL communication, mixed precision, scaling analysis | 1 GPU | Planned |
 
 ## Results summary
@@ -21,6 +21,7 @@ Filled in as each project is benchmarked. All numbers list the GPU, CUDA version
 | SGEMM (2048³, FP32) | ~90% of cuBLAS (6 steps; 59x over naive) | Tesla T4, CUDA 13.0 |
 | Softmax (FP32) | 98–102% of copy bandwidth for rows up to 8192 columns; 64% for 32768 (6–8x over naive) | Tesla T4, CUDA 13.0 |
 | LayerNorm (FP32) | 97–101% of copy bandwidth for rows up to 8192 columns; 63% for 32768 | Tesla T4, CUDA 13.0 |
+| As PyTorch ops | LayerNorm 1.4–1.5x faster than `F.layer_norm` (256 / 4096 / 8192 cols); softmax 0.95–1.18x of `torch.softmax` | Tesla T4, PyTorch 2.11 |
 | DDP training (2 GPUs) | TBD tokens/s, TBD scaling efficiency | TBD |
 
 <picture>
