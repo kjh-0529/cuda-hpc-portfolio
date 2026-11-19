@@ -13,7 +13,7 @@ Square matrices, FP32. GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0, driver 580. R
 | 02 coalesced | 609 | 573 | 563 | 16 / 14 / 14 | coalesced global memory access |
 | 03 shared-memory tiling | 886 | 873 | 853 | 25 / 22 / 21 | reuse tiles of A and B from shared memory |
 | 04 register blocking | 2873 | 3260 | 3096 | 76 / 81 / 77 | each thread computes an 8×8 block of C from registers |
-| 05 vectorized loads | — | — | — | — | `float4` loads, no shared-memory bank conflicts |
+| 05 vectorized loads | TBD | TBD | TBD | TBD | `float4` loads, A tile transposed in shared memory |
 | 06 double buffering | — | — | — | — | overlap tile loads with computation |
 
 Step 02 is about 10x faster than step 01, from changing only how threads map to the matrix. Step 03 adds 1.5x. Step 04 is the big jump: 3.2–3.7x over step 03 and about 50x over naive, reaching 76–81% of cuBLAS.
@@ -87,6 +87,25 @@ Each block computes a 128×128 tile of C with 256 threads, so each thread comput
 - Measured on T4: 3260 GFLOPS at 2048³, 3.7x step 03 and 54x step 01, 81% of cuBLAS.
 - Nsight Compute: pending (see step 01).
 - Expected remaining bottleneck: A is read from shared memory one float at a time with a stride of 8, and global loads of A are only 32 bytes wide. Step 05 stores A transposed and uses `float4` loads.
+
+### 05 vectorized loads
+
+Same tiling as step 04 (128×128 block tile, 8×8 results per thread, 256 threads), with three changes:
+
+1. **`float4` global loads:** each thread loads one `float4` of A and one of B per tile, 4 floats per instruction instead of 1.
+2. **Transposed A tile:** A is stored in shared memory as `As[k][m]` instead of `As[m][k]`. A thread needs 8 consecutive rows of A for one k; after the transpose they are contiguous, so it reads them with two `float4` loads instead of eight strided scalar loads.
+3. **`float4` for B and C:** the 8 values of B per k and the 8 results per row of C also move as two `float4` each.
+
+| Per thread, per tile | Step 04 | Step 05 |
+|---|---|---|
+| Global load instructions (A + B) | 4 + 4 | 1 + 1 |
+| Shared-memory load instructions in the inner loop | 128 | 32 |
+
+`float4` needs 16-byte alignment, so the kernel requires `K % 4 == 0` and `N % 4 == 0`; other sizes fall back to the step 04 kernel. `ptxas` reports 113 registers per thread and no spills on sm_75. A thread-by-thread CPU simulation checked results, `float4` alignment and bounds, including sizes that are not multiples of the tile.
+
+- Measured on T4: TBD
+- Nsight Compute: pending (see step 01).
+- Known cost: the transposed stores into `As` have a 2-way shared-memory bank conflict (two threads with the same row write different k into the same bank). It happens once per tile, against 32 conflict-free `float4` reads.
 
 ## How to run
 
