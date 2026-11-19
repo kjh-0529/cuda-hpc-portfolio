@@ -13,6 +13,9 @@ def main(paths):
     for p in paths:
         with open(p) as f:
             r = json.load(f)
+        # Skip anything that is not a train.py result, e.g. profiler traces.
+        if not isinstance(r, dict) or "tokens_per_s" not in r:
+            continue
         r["file"] = p.split("/")[-1]
         runs.append(r)
     runs.sort(key=lambda r: (r["amp"], r["gpus"], r["grad_accum"], r["file"]))

@@ -2,7 +2,7 @@
 
 A small GPT-style language model trained on one GPU and then two with PyTorch DistributedDataParallel. The same questions I work on in MPI codes, applied to AI training: how much does communication cost, and how close to linear does it scale?
 
-Status: experiments 1–4 measured on 2x Tesla T4 (Kaggle): FP16 is 4.0x faster than FP32, 2 GPUs scale at 93%, and 2-GPU training converges like 1-GPU training. Experiment 5 (communication) next.
+Status: done on 2x Tesla T4 (Kaggle). FP16 is 4.0x faster than FP32; 2 GPUs scale at 93%, or about 100% with gradient accumulation and `no_sync()`; 2-GPU training converges like 1-GPU training; one oversized DDP bucket costs 9% by killing compute/communication overlap.
 
 ## Setup
 
@@ -33,12 +33,12 @@ Scaling efficiency = tokens/s on N GPUs ÷ (N × tokens/s on 1 GPU).
 
 2x Tesla T4 on Kaggle, PyTorch 2.11 (CUDA 13.0), 300 steps per run. Raw data: [`results/kaggle-t4x2.csv`](results/kaggle-t4x2.csv).
 
-| Run | GPUs | Precision | Global batch (tokens) | tokens/s | ms/step | MFU | Peak memory | Final val loss |
-|---|---|---|---|---|---|---|---|---|
-| 1 GPU FP32 | 1 | FP32 | 8,192 | 27,120 | 302.1 | 41.7% of 8.1 TFLOPS | 1.98 GB | 2.047 |
-| 1 GPU FP16 | 1 | FP16 AMP | 8,192 | 107,597 | 76.1 | 20.6% of 65 TFLOPS | 1.29 GB | 2.048 |
-| **2 GPUs FP16** | 2 | FP16 AMP | 16,384 | **200,867** | 81.6 | 19.2% | 1.37 GB | **1.898** |
-| 1 GPU FP16, 2 accumulation steps | 1 | FP16 AMP | 16,384 | 96,789 | 169.3 | 18.5% | 1.37 GB | **1.895** |
+| Run | Purpose | GPUs | Precision | Global batch (tokens) | tokens/s | ms/step | MFU | Peak memory | Final val loss |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 GPU FP32 | baseline | 1 | FP32 | 8,192 | 27,120 | 302.1 | 41.7% of 8.1 TFLOPS | 1.98 GB | 2.047 |
+| 1 GPU FP16 | speed reference for scaling (same per-GPU batch as 2 GPUs) | 1 | FP16 AMP | 8,192 | 107,597 | 76.1 | 20.6% of 65 TFLOPS | 1.29 GB | 2.048 |
+| **2 GPUs FP16** | scaling and convergence | 2 | FP16 AMP | 16,384 | **200,867** | 81.6 | 19.2% | 1.37 GB | **1.898** |
+| 1 GPU FP16, 2 accumulation steps | convergence reference (same global batch as 2 GPUs) | 1 | FP16 AMP | 16,384 | 96,789 | 169.3 | 18.5% | 1.37 GB | **1.895** |
 
 **1. Mixed precision: 4.0x faster, 35% less memory, same loss.** FP16 autocast moves the matrix multiplies onto the T4's Tensor Cores: 27,120 → 107,597 tokens/s, peak memory 1.98 → 1.29 GB, and the final validation loss is unchanged (2.047 vs 2.048).
 
@@ -50,6 +50,34 @@ Scaling efficiency = tokens/s on N GPUs ÷ (N × tokens/s on 1 GPU).
 
 Measurement caveat: the runs were executed one after another on the same notebook. The accumulation run, which came last, is about 10% slower per micro-step than the earlier FP16 run, although it does the same work per micro-step and fewer optimizer steps. The likely cause is the T4 lowering its clock as it heats up, as measured in the SGEMM project. That means later runs, including the 2-GPU run, may be slightly penalized, and the 93% scaling efficiency is, if anything, a conservative estimate.
 
+### Communication (experiment 5)
+
+All runs: 2 GPUs, FP16, 150 steps.
+
+| Run | Global batch (tokens) | tokens/s | per GPU | ms/step | Final val loss |
+|---|---|---|---|---|---|
+| 4 accumulation steps, `no_sync()` (all-reduce once per step) | 65,536 | **215,581** | 107,791 | 304.0 | 2.188 |
+| 4 accumulation steps, all-reduce every micro-step | 65,536 | 194,250 | 97,125 | 337.4 | 2.191 |
+| Bucket 1 MB | 16,384 | 199,002 | 99,501 | 82.3 | 2.309 |
+| Bucket 25 MB (default; 300-step run above) | 16,384 | 200,867 | 100,434 | 81.6 | — |
+| Bucket 100 MB (one bucket for all 77 MB of gradients) | 16,384 | 183,284 | 91,642 | 89.4 | 2.309 |
+
+**`no_sync()` is worth 11%, and makes scaling effectively perfect.** With 4 accumulation steps, skipping the all-reduce on the first three micro-steps raises throughput from 194,250 to 215,581 tokens/s; each avoided all-reduce saved about 11 ms. At 107,791 tokens/s per GPU, the `no_sync()` run matches the single-GPU speed (107,597): communication once per 4 micro-steps is fully amortized, i.e. about 100% scaling efficiency. Both runs reach the same loss (2.188 vs 2.191), so the saving is free.
+
+**One big bucket costs 9%.** DDP sends gradients in buckets so that the all-reduce of the last layers' gradients runs while the backward pass is still computing earlier layers. With a 100 MB bucket, all 77 MB of gradients form a single bucket, so communication can start only after the whole backward pass: each step takes 89.4 ms instead of 81.6 ms. Very small 1 MB buckets were close to the default (199,002 vs 200,867 tokens/s, within run-to-run noise); on this PCIe pair, per-message overhead matters much less than losing overlap. Loss is identical across bucket sizes (2.309 vs 2.309), as it should be.
+
+**Profiler: where a 2-GPU step goes.** From the `torch.profiler` trace (4 steps, FP16, about 85 ms per step with profiling on):
+
+| Per step, per GPU | Time | Share of step |
+|---|---|---|
+| Matrix multiplies (Tensor Core GEMMs, forward and backward) | ~40 ms | ~47% |
+| NCCL all-reduce of gradients (about 4 buckets) | ~14 ms | ~16%, mostly overlapped with backward |
+| Everything else: LayerNorm, softmax, GELU, attention, optimizer, data loading, idle gaps | ~31 ms | ~37% |
+
+The all-reduce kernels add up to about 14 ms per step, yet a 2-GPU step is only about 5.5 ms slower than a 1-GPU step, so roughly 60% of the communication is hidden behind the backward pass. And less than half of each step is spent in the matrix multiplies the MFU figure counts, which is why FP16 MFU is about 20%.
+
+Comparisons are within this table; loss values depend on the number of steps and the global batch, so they are only comparable within each pair.
+
 ## Run
 
 On Kaggle, set the accelerator to **GPU T4 x2** and enable internet (the corpus is downloaded on first use).
@@ -59,5 +87,11 @@ python train.py --amp none --out results/1gpu_fp32.json
 python train.py --amp fp16 --out results/1gpu_fp16.json
 torchrun --nproc_per_node=2 train.py --amp fp16 --out results/2gpu_fp16.json
 python train.py --amp fp16 --grad-accum 2 --out results/1gpu_fp16_accum2.json
+# experiment 5
+torchrun --nproc_per_node=2 train.py --amp fp16 --grad-accum 4 --steps 150 --out results/2gpu_accum4_nosync.json
+torchrun --nproc_per_node=2 train.py --amp fp16 --grad-accum 4 --steps 150 --sync-every-micro-step --out results/2gpu_accum4_sync.json
+torchrun --nproc_per_node=2 train.py --amp fp16 --steps 150 --bucket-cap-mb 1 --out results/2gpu_bucket1.json
+torchrun --nproc_per_node=2 train.py --amp fp16 --steps 150 --bucket-cap-mb 100 --out results/2gpu_bucket100.json
+torchrun --nproc_per_node=2 train.py --amp fp16 --steps 40 --profile
 python summarize.py results/*.json
 ```

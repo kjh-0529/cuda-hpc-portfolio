@@ -184,7 +184,7 @@ def main():
         prof.stop()
         if is_main:
             os.makedirs("results", exist_ok=True)
-            trace = f"results/trace_{world}gpu_{args.amp}.json"
+            trace = f"results/trace_{world}gpu_{args.amp}.pt.trace.json"
             prof.export_chrome_trace(trace)
             print(prof.key_averages().table(
                 sort_by="cuda_time_total" if use_cuda else "cpu_time_total", row_limit=15))
