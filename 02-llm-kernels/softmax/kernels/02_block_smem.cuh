@@ -9,7 +9,7 @@
 #pragma once
 
 #include "cuda_check.cuh"
-#include "kernels/common.cuh"
+#include "common.cuh"
 
 template <int THREADS>
 __global__ void softmax_block_smem_kernel(const float* __restrict__ x,
@@ -46,8 +46,8 @@ __global__ void softmax_block_smem_kernel(const float* __restrict__ x,
     for (int c = tid; c < cols; c += THREADS) yr[c] = expf(xr[c] - m) * inv;
 }
 
-inline void launch_softmax_block_smem(const float* x, float* y, int rows, int cols) {
+inline void launch_softmax_block_smem(const float* x, float* y, int rows, int cols, cudaStream_t stream = 0) {
     constexpr int kThreads = 256;
-    softmax_block_smem_kernel<kThreads><<<rows, kThreads>>>(x, y, rows, cols);
+    softmax_block_smem_kernel<kThreads><<<rows, kThreads, 0, stream>>>(x, y, rows, cols);
     CUDA_CHECK_LAST();
 }

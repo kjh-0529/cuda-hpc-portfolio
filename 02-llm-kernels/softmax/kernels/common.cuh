@@ -9,4 +9,5 @@
 
 // Row-wise softmax: y[r, c] = exp(x[r, c] - max_r) / sum_c exp(x[r, c] - max_r).
 // Subtracting the row maximum keeps exp() from overflowing.
-using SoftmaxLaunchFn = void (*)(const float* x, float* y, int rows, int cols);
+using SoftmaxLaunchFn = void (*)(const float* x, float* y, int rows, int cols,
+                                 cudaStream_t stream);

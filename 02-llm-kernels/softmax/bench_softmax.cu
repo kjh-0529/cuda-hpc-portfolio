@@ -114,14 +114,14 @@ int main(int argc, char** argv) {
                      softmax_auto_path(sh.cols));
         for (const auto& kern : kKernels) {
             CUDA_CHECK(cudaMemset(dy, 0, bytes));
-            kern.launch(dx, dy, sh.rows, sh.cols);
+            kern.launch(dx, dy, sh.rows, sh.cols, 0);
             CUDA_CHECK(cudaDeviceSynchronize());
             CUDA_CHECK(cudaMemcpy(hy.data(), dy, bytes, cudaMemcpyDeviceToHost));
             const bool ok = all_close(hy, href, 1e-6f, 1e-4f);
             all_ok = all_ok && ok;
 
             const double near_copy = gbps(time_median_ms(run_copy));
-            const float ms = time_median_ms([&] { kern.launch(dx, dy, sh.rows, sh.cols); });
+            const float ms = time_median_ms([&] { kern.launch(dx, dy, sh.rows, sh.cols, 0); });
             const double eff = gbps(ms);
             std::printf("%s,%d,%d,%.4f,%.1f,%.1f,%.1f,%s\n", kern.name, sh.rows, sh.cols, ms,
                         eff, 100.0 * eff / near_copy, near_copy, ok ? "yes" : "NO");

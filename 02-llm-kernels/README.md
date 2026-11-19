@@ -2,7 +2,7 @@
 
 Memory-bandwidth-bound kernels used in every transformer layer, optimized step by step and later exposed to PyTorch as a C++/CUDA extension.
 
-Status: softmax and LayerNorm done on a Tesla T4, both at copy speed for rows up to 8192 columns. Next: PyTorch extension.
+Status: softmax and LayerNorm done on a Tesla T4, both at copy speed for rows up to 8192 columns. PyTorch extension implemented, results pending.
 
 ## Softmax
 
@@ -138,8 +138,46 @@ Checks before running on a GPU: all nine kernel configurations compile with no r
 cd layernorm && ../../build/02-llm-kernels/layernorm/layernorm_bench 2>&1 | tee results/<gpu-name>.csv
 ```
 
+## PyTorch extension
+
+[`torch_ext/`](torch_ext/) exposes both kernels to PyTorch as forward-only (inference) ops:
+
+```python
+import llm_kernels                        # compiles the extension on first import (~1 min)
+y = llm_kernels.softmax(x)                # softmax over the last dimension
+z = llm_kernels.layer_norm(x, w, b, 1e-5) # LayerNorm over the last dimension
+```
+
+- Any number of leading dimensions; `x` is viewed as `[rows x cols]` with `cols = x.size(-1)`.
+- The row-length dispatchers pick the kernel (softmax step 05, LayerNorm step 03).
+- Kernels run on PyTorch's **current CUDA stream**, so they order correctly with other PyTorch work and inside `torch.cuda.stream(...)` blocks. Every launcher in this project now takes a stream argument for that reason.
+- CUDA errors become Python exceptions instead of exiting the process.
+- Views that are not 16-byte aligned (for example a slice starting one element in) are copied first, because the kernels use `float4` loads.
+- Inputs must be float32 CUDA tensors; anything else raises a clear error.
+
+Built with `torch.utils.cpp_extension.load`, without forcing a C++ standard: recent PyTorch releases require C++20, and a hard-coded `-std=c++17` breaks the build. The source compiles against PyTorch 2.15 headers.
+
+Tests (`torch_ext/tests/test_ops.py`) compare both ops with PyTorch computed in float64 on shapes that hit every dispatcher path, including 3-D inputs, rows whose length is not a multiple of 4, misaligned and non-contiguous views, a non-default stream, and bad inputs. `torch_ext/bench_torch.py` times the ops against `torch.softmax` and `torch.nn.functional.layer_norm` with the same method as the C++ benchmarks.
+
+### Results
+
+GPU: TBD.
+
+| Op | 8192×256 | 4096×1024 | 4096×4096 | 2048×8192 | 1024×32768 |
+|---|---|---|---|---|---|
+| softmax: ours vs PyTorch | TBD | TBD | TBD | TBD | TBD |
+| LayerNorm: ours vs PyTorch | TBD | TBD | TBD | TBD | TBD |
+
+### Run
+
+```bash
+cd torch_ext
+python -m pytest -q tests
+python bench_torch.py --out results/<gpu-name>.csv
+```
+
 ## Planned
 
 - FP16 / BF16 inputs
-- PyTorch C++/CUDA extension (`torch.utils.cpp_extension`), compared with `torch.softmax` and `torch.nn.LayerNorm`
+- Backward passes, so the ops can be used in training (`torch.autograd.Function`)
 - Optional: the same softmax in Triton

@@ -16,7 +16,7 @@
 #pragma once
 
 #include "cuda_check.cuh"
-#include "kernels/common.cuh"
+#include "common.cuh"
 
 struct MaxSum {
     float m;  // running max
@@ -86,8 +86,8 @@ __global__ void softmax_online_kernel(const float* __restrict__ x, float* __rest
     for (int c = tid; c < cols; c += THREADS) yr[c] = expf(xr[c] - r.m) * inv;
 }
 
-inline void launch_softmax_online(const float* x, float* y, int rows, int cols) {
+inline void launch_softmax_online(const float* x, float* y, int rows, int cols, cudaStream_t stream = 0) {
     constexpr int kThreads = 256;
-    softmax_online_kernel<kThreads><<<rows, kThreads>>>(x, y, rows, cols);
+    softmax_online_kernel<kThreads><<<rows, kThreads, 0, stream>>>(x, y, rows, cols);
     CUDA_CHECK_LAST();
 }

@@ -7,7 +7,7 @@
 #pragma once
 
 #include "cuda_check.cuh"
-#include "kernels/common.cuh"
+#include "common.cuh"
 
 __global__ void softmax_naive_kernel(const float* __restrict__ x, float* __restrict__ y,
                                      int rows, int cols) {
@@ -24,8 +24,8 @@ __global__ void softmax_naive_kernel(const float* __restrict__ x, float* __restr
     for (int c = 0; c < cols; ++c) yr[c] = expf(xr[c] - m) * inv;
 }
 
-inline void launch_softmax_naive(const float* x, float* y, int rows, int cols) {
+inline void launch_softmax_naive(const float* x, float* y, int rows, int cols, cudaStream_t stream = 0) {
     constexpr int kThreads = 128;
-    softmax_naive_kernel<<<(rows + kThreads - 1) / kThreads, kThreads>>>(x, y, rows, cols);
+    softmax_naive_kernel<<<(rows + kThreads - 1) / kThreads, kThreads, 0, stream>>>(x, y, rows, cols);
     CUDA_CHECK_LAST();
 }

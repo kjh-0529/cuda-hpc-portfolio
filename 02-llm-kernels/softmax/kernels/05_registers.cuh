@@ -20,9 +20,9 @@
 #pragma once
 
 #include "cuda_check.cuh"
-#include "kernels/03_warp_shuffle.cuh"
-#include "kernels/04_online.cuh"
-#include "kernels/common.cuh"
+#include "03_warp_shuffle.cuh"
+#include "04_online.cuh"
+#include "common.cuh"
 
 template <int ROW_THREADS, int VEC>
 __global__ void __launch_bounds__(ROW_THREADS == 32 ? 128 : ROW_THREADS)
@@ -82,11 +82,11 @@ __global__ void __launch_bounds__(ROW_THREADS == 32 ? 128 : ROW_THREADS)
 }
 
 template <int ROW_THREADS, int VEC>
-inline void launch_registers_config(const float* x, float* y, int rows, int cols) {
+inline void launch_registers_config(const float* x, float* y, int rows, int cols, cudaStream_t stream = 0) {
     if constexpr (ROW_THREADS == 32) {
-        softmax_registers_kernel<32, VEC><<<(rows + 3) / 4, 128>>>(x, y, rows, cols);
+        softmax_registers_kernel<32, VEC><<<(rows + 3) / 4, 128, 0, stream>>>(x, y, rows, cols);
     } else {
-        softmax_registers_kernel<ROW_THREADS, VEC><<<rows, ROW_THREADS>>>(x, y, rows, cols);
+        softmax_registers_kernel<ROW_THREADS, VEC><<<rows, ROW_THREADS, 0, stream>>>(x, y, rows, cols);
     }
     CUDA_CHECK_LAST();
 }
@@ -109,18 +109,18 @@ inline const char* softmax_auto_path(int cols) {
 // registers for medium rows, online softmax for rows too long to hold in registers.
 // Rows whose length is not a multiple of 4 cannot use float4 and fall back to the
 // best scalar kernel measured for that length on the T4.
-inline void launch_softmax_auto(const float* x, float* y, int rows, int cols) {
+inline void launch_softmax_auto(const float* x, float* y, int rows, int cols, cudaStream_t stream = 0) {
     if (cols % 4 != 0) {
-        if (cols <= 2048) launch_softmax_warp_shuffle(x, y, rows, cols);
-        else launch_softmax_online(x, y, rows, cols);
+        if (cols <= 2048) launch_softmax_warp_shuffle(x, y, rows, cols, stream);
+        else launch_softmax_online(x, y, rows, cols, stream);
         return;
     }
-    if (cols <= 128) return launch_registers_config<32, 1>(x, y, rows, cols);
-    if (cols <= 256) return launch_registers_config<32, 2>(x, y, rows, cols);
-    if (cols <= 512) return launch_registers_config<32, 4>(x, y, rows, cols);
-    if (cols <= 1024) return launch_registers_config<32, 8>(x, y, rows, cols);
-    if (cols <= 2048) return launch_registers_config<256, 2>(x, y, rows, cols);
-    if (cols <= 4096) return launch_registers_config<256, 4>(x, y, rows, cols);
-    if (cols <= 8192) return launch_registers_config<256, 8>(x, y, rows, cols);
-    launch_softmax_online(x, y, rows, cols);
+    if (cols <= 128) return launch_registers_config<32, 1>(x, y, rows, cols, stream);
+    if (cols <= 256) return launch_registers_config<32, 2>(x, y, rows, cols, stream);
+    if (cols <= 512) return launch_registers_config<32, 4>(x, y, rows, cols, stream);
+    if (cols <= 1024) return launch_registers_config<32, 8>(x, y, rows, cols, stream);
+    if (cols <= 2048) return launch_registers_config<256, 2>(x, y, rows, cols, stream);
+    if (cols <= 4096) return launch_registers_config<256, 4>(x, y, rows, cols, stream);
+    if (cols <= 8192) return launch_registers_config<256, 8>(x, y, rows, cols, stream);
+    launch_softmax_online(x, y, rows, cols, stream);
 }

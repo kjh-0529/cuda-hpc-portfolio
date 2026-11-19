@@ -8,7 +8,7 @@
 #pragma once
 
 #include "cuda_check.cuh"
-#include "kernels/common.cuh"
+#include "common.cuh"
 
 // block_reduce() lives in 02-llm-kernels/common/reduce.cuh (shared with LayerNorm).
 
@@ -34,8 +34,8 @@ __global__ void softmax_warp_shuffle_kernel(const float* __restrict__ x,
     for (int c = tid; c < cols; c += THREADS) yr[c] = expf(xr[c] - m) * inv;
 }
 
-inline void launch_softmax_warp_shuffle(const float* x, float* y, int rows, int cols) {
+inline void launch_softmax_warp_shuffle(const float* x, float* y, int rows, int cols, cudaStream_t stream = 0) {
     constexpr int kThreads = 256;
-    softmax_warp_shuffle_kernel<kThreads><<<rows, kThreads>>>(x, y, rows, cols);
+    softmax_warp_shuffle_kernel<kThreads><<<rows, kThreads, 0, stream>>>(x, y, rows, cols);
     CUDA_CHECK_LAST();
 }

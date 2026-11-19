@@ -12,4 +12,5 @@
 #include "reduce.cuh"
 
 using LayerNormLaunchFn = void (*)(const float* x, const float* gamma, const float* beta,
-                                   float* y, int rows, int cols, float eps);
+                                   float* y, int rows, int cols, float eps,
+                                   cudaStream_t stream);

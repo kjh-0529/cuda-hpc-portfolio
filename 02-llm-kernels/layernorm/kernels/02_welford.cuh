@@ -12,7 +12,7 @@
 #pragma once
 
 #include "cuda_check.cuh"
-#include "kernels/common.cuh"
+#include "common.cuh"
 
 struct Welford {
     float mean;
@@ -85,8 +85,8 @@ __global__ void layernorm_welford_kernel(const float* __restrict__ x,
 }
 
 inline void launch_layernorm_welford(const float* x, const float* gamma, const float* beta,
-                                     float* y, int rows, int cols, float eps) {
+                                     float* y, int rows, int cols, float eps, cudaStream_t stream = 0) {
     constexpr int kThreads = 256;
-    layernorm_welford_kernel<kThreads><<<rows, kThreads>>>(x, gamma, beta, y, rows, cols, eps);
+    layernorm_welford_kernel<kThreads><<<rows, kThreads, 0, stream>>>(x, gamma, beta, y, rows, cols, eps);
     CUDA_CHECK_LAST();
 }

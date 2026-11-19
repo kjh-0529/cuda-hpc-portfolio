@@ -14,8 +14,8 @@
 #pragma once
 
 #include "cuda_check.cuh"
-#include "kernels/02_welford.cuh"
-#include "kernels/common.cuh"
+#include "02_welford.cuh"
+#include "common.cuh"
 
 template <int ROW_THREADS, int VEC>
 __global__ void __launch_bounds__(ROW_THREADS == 32 ? 128 : ROW_THREADS)
@@ -80,13 +80,13 @@ __global__ void __launch_bounds__(ROW_THREADS == 32 ? 128 : ROW_THREADS)
 
 template <int ROW_THREADS, int VEC>
 inline void launch_ln_registers_config(const float* x, const float* gamma, const float* beta,
-                                       float* y, int rows, int cols, float eps) {
+                                       float* y, int rows, int cols, float eps, cudaStream_t stream = 0) {
     if constexpr (ROW_THREADS == 32) {
         layernorm_registers_kernel<32, VEC>
-            <<<(rows + 3) / 4, 128>>>(x, gamma, beta, y, rows, cols, eps);
+            <<<(rows + 3) / 4, 128, 0, stream>>>(x, gamma, beta, y, rows, cols, eps);
     } else {
         layernorm_registers_kernel<ROW_THREADS, VEC>
-            <<<rows, ROW_THREADS>>>(x, gamma, beta, y, rows, cols, eps);
+            <<<rows, ROW_THREADS, 0, stream>>>(x, gamma, beta, y, rows, cols, eps);
     }
     CUDA_CHECK_LAST();
 }
@@ -104,14 +104,14 @@ inline const char* layernorm_auto_path(int cols) {
 }
 
 inline void launch_layernorm_auto(const float* x, const float* gamma, const float* beta,
-                                  float* y, int rows, int cols, float eps) {
+                                  float* y, int rows, int cols, float eps, cudaStream_t stream = 0) {
     if (cols % 4 != 0 || cols > 8192)
-        return launch_layernorm_welford(x, gamma, beta, y, rows, cols, eps);
-    if (cols <= 128) return launch_ln_registers_config<32, 1>(x, gamma, beta, y, rows, cols, eps);
-    if (cols <= 256) return launch_ln_registers_config<32, 2>(x, gamma, beta, y, rows, cols, eps);
-    if (cols <= 512) return launch_ln_registers_config<32, 4>(x, gamma, beta, y, rows, cols, eps);
-    if (cols <= 1024) return launch_ln_registers_config<32, 8>(x, gamma, beta, y, rows, cols, eps);
-    if (cols <= 2048) return launch_ln_registers_config<256, 2>(x, gamma, beta, y, rows, cols, eps);
-    if (cols <= 4096) return launch_ln_registers_config<256, 4>(x, gamma, beta, y, rows, cols, eps);
-    launch_ln_registers_config<256, 8>(x, gamma, beta, y, rows, cols, eps);
+        return launch_layernorm_welford(x, gamma, beta, y, rows, cols, eps, stream);
+    if (cols <= 128) return launch_ln_registers_config<32, 1>(x, gamma, beta, y, rows, cols, eps, stream);
+    if (cols <= 256) return launch_ln_registers_config<32, 2>(x, gamma, beta, y, rows, cols, eps, stream);
+    if (cols <= 512) return launch_ln_registers_config<32, 4>(x, gamma, beta, y, rows, cols, eps, stream);
+    if (cols <= 1024) return launch_ln_registers_config<32, 8>(x, gamma, beta, y, rows, cols, eps, stream);
+    if (cols <= 2048) return launch_ln_registers_config<256, 2>(x, gamma, beta, y, rows, cols, eps, stream);
+    if (cols <= 4096) return launch_ln_registers_config<256, 4>(x, gamma, beta, y, rows, cols, eps, stream);
+    launch_ln_registers_config<256, 8>(x, gamma, beta, y, rows, cols, eps, stream);
 }
