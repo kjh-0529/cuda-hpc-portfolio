@@ -2,7 +2,7 @@
 
 Memory-bandwidth-bound kernels used in every transformer layer, optimized step by step and later exposed to PyTorch as a C++/CUDA extension.
 
-Status: softmax steps 01–03 implemented; results pending.
+Status: softmax steps 01–03 implemented and measured on a Tesla T4.
 
 ## Softmax
 
@@ -22,16 +22,24 @@ Every kernel is checked against a double-precision CPU reference. Timing uses th
 
 ### Results
 
-GPU: TBD. Raw data: `softmax/results/`.
+GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0. Raw data: [`softmax/results/kaggle-t4.csv`](softmax/results/kaggle-t4.csv). Cells show effective bandwidth in GB/s and, in parentheses, % of the copy baseline.
 
 | Kernel | 8192×256 | 4096×1024 | 4096×4096 | 1024×32768 | Main change |
 |---|---|---|---|---|---|
-| copy (baseline) | TBD | TBD | TBD | TBD | reads x and writes y once |
-| 01 naive | TBD | TBD | TBD | TBD | one thread per row |
-| 02 block + shared memory | TBD | TBD | TBD | TBD | one block per row, coalesced, tree reduction |
-| 03 warp shuffle | TBD | TBD | TBD | TBD | reductions in registers with `__shfl_xor_sync` |
+| copy (baseline) | 228 | 232 | 232 | 234 | reads x and writes y once |
+| 01 naive | 40 (17%) | 38 (17%) | 38 (16%) | 20 (9%) | one thread per row |
+| 02 block + shared memory | 92 (40%) | 223 (96%) | 167 (72%) | 117 (50%) | one block per row, coalesced, tree reduction |
+| 03 warp shuffle | 123 (54%) | 243 (105%) | 170 (73%) | 117 (50%) | reductions in registers with `__shfl_xor_sync` |
 | 04 online softmax | — | — | — | — | max and sum in one pass |
 | 05 vectorized, row in registers | — | — | — | — | `float4`, read x once |
+
+The copy reaches about 230 GB/s, roughly 72% of the T4's 320 GB/s peak, which is typical for a real kernel.
+
+What the numbers show:
+
+- **Coalescing is worth 3–6x** (step 01 → 02), as in SGEMM.
+- **Row length decides everything after that.** Step 03 reads x three times, but at 4096×1024 it matches the copy (105%): a 4 KB row stays in cache between the three passes, so DRAM sees x only once. At 1024×32768 a row is 128 KB, every pass goes back to DRAM, and the kernel moves 3 reads + 1 write instead of 1 + 1. It reaches exactly the predicted 2/4 = **50%** of the copy. 4096×4096 (16 KB rows) sits in between at 73%.
+- **Warp shuffles only matter for short rows.** With 256 columns each thread handles one element, so the reductions and barriers dominate, and shuffles lift 40% to 54%. For long rows the kernel is waiting on memory and step 03 equals step 02.
 
 ### Steps
 
@@ -39,9 +47,9 @@ GPU: TBD. Raw data: `softmax/results/`.
 
 **02 one block per row, shared-memory reduction.** 256 threads stride over the row together, so each warp reads 32 consecutive floats. The row max and the row sum are combined with a shared-memory tree: 8 rounds, each followed by `__syncthreads()`. Global traffic: x is read three times and y written once.
 
-**03 warp-shuffle reduction.** Each reduction first runs inside a warp with `__shfl_xor_sync` (registers only, no barrier). Only the 8 per-warp results go through shared memory. Per reduction this replaces 8 shared-memory rounds and 8 barriers with 5 shuffles and 2 barriers. Since the kernel is memory-bound, the gain is expected to be small; step 04 attacks the real cost, which is reading x three times.
+**03 warp-shuffle reduction.** Each reduction first runs inside a warp with `__shfl_xor_sync` (registers only, no barrier). Only the 8 per-warp results go through shared memory. Per reduction this replaces 8 shared-memory rounds and 8 barriers with 5 shuffles and 2 barriers. Measured: 40% → 54% of the copy for 256-column rows, no change for long rows, because long rows are limited by memory, not by the reduction.
 
-**Next.** Step 04 (online softmax) computes the max and the sum in a single pass, cutting reads of x from three to two. Step 05 keeps the row in registers and uses `float4`, so x is read only once.
+**Next.** Step 04 (online softmax) computes the max and the sum in a single pass, cutting reads of x from three to two; for long rows that predicts about 2/3 = 67% of the copy. Step 05 keeps the row in registers and uses `float4`, so x is read only once; that works for rows up to a few thousand columns, while vocabulary-sized rows rely on step 04. Short rows (256) would benefit from one warp per row instead of one block.
 
 ### Run
 
