@@ -60,7 +60,7 @@ Each 32×32 thread block computes a 32×32 tile of C and walks along K in steps 
 
 Every value loaded from global memory is reused 32 times inside the block, so global memory traffic drops by about 32x versus step 02. In the inner loop, `As[ty][k]` is a broadcast and `Bs[k][tx]` reads 32 consecutive floats, so there are no shared-memory bank conflicts. Out-of-range elements are loaded as zero, so sizes that are not multiples of 32 stay correct.
 
-- Measured on T4: 855 GFLOPS at 4096³, 1.52x step 02 and 13.9x step 01. At 1024³ the gain is only 1.04x, because there the whole problem already fits well in L2 and step 02 was not starved for memory.
+- Measured on T4: 855 GFLOPS at 4096³, 1.52x step 02 and 13.9x step 01. At 1024³ the gain is only 1.04x: step 02 was already at its best size there (799 GFLOPS), with many of its repeated loads served from the L2 cache.
 - GFLOPS no longer drops with matrix size (827 → 894 → 855), since global memory traffic no longer grows with the cache misses that hurt step 02.
 - Why only 1.5x and not 32x: the bottleneck moved from global memory to the SM itself.
     - Each multiply-add still needs two shared-memory loads, so shared-memory bandwidth and load instructions now limit speed.
