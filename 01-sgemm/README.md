@@ -14,7 +14,7 @@ Square matrices, FP32. GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0, driver 580. R
 | 03 shared-memory tiling | 900 | 881 | 865 | 25 / 21 / 21 | reuse tiles of A and B from shared memory |
 | 04 register blocking | 2864 | 3310 | 3146 | 82 / 81 / 76 | each thread computes an 8×8 block of C from registers |
 | 05 vectorized loads | 3329 | 3603 | 3472 | 92 / 87 / 84 | `float4` loads, A tile transposed in shared memory |
-| 06 double buffering | — | — | — | — | overlap tile loads with computation |
+| 06 double buffering | TBD | TBD | TBD | TBD | load the next tile while computing the current one |
 
 Step 02 is about 10x faster than step 01, from changing only how threads map to the matrix. Step 03 adds 1.5x. Step 04 is the big jump: 3.2–3.8x over step 03. Step 05 adds 1.09–1.16x, reaching 84–92% of cuBLAS and about 59x naive at 2048³.
 
@@ -106,6 +106,25 @@ Same tiling as step 04 (128×128 block tile, 8×8 results per thread, 256 thread
 - Measured on T4: 3603 GFLOPS at 2048³, 1.09x step 04 and 59x step 01, 87% of cuBLAS. The gain is largest at 1024³ (1.16x, 92% of cuBLAS).
 - Nsight Compute: pending (see step 01).
 - Known cost: the transposed stores into `As` have a 2-way shared-memory bank conflict (two threads with the same row write different k into the same bank). It happens once per tile, against 32 conflict-free `float4` reads.
+
+### 06 double buffering
+
+Same tiling and `float4` accesses as step 05; what changes is when the next tile is loaded.
+
+| | Step 05 | Step 06 |
+|---|---|---|
+| Per tile | load → store to shared → sync → compute → sync | issue loads for tile t+1 → compute tile t → store t+1 into the other buffer → sync |
+| Shared-memory buffers | 1 (8 KB) | 2 (16 KB) |
+| `__syncthreads()` per tile | 2 | 1 |
+| Registers per thread | 113 | 127 (8 extra floats hold the prefetched tile) |
+
+The global loads for the next tile are in flight while each thread does the 512 multiply-adds of the current tile, so global-memory latency is hidden behind computation instead of stalling the block. Turing (sm_75) has no `cp.async` (added in sm_80), so the prefetch goes through registers.
+
+One barrier per tile is enough: tile t+1 is written into the buffer that was last read for tile t-1, and every thread passed the barrier at the end of iteration t-1 only after finishing that computation. A CPU simulation checked results, `float4` alignment and bounds, and found no shared-memory race between barriers (its race checker was confirmed to flag a deliberately racy access).
+
+- Measured on T4: TBD
+- Nsight Compute: pending (see step 01).
+- Expected gain: modest. Two blocks per SM already hide part of the load latency in step 05, so double buffering mainly removes the remaining stalls at each barrier.
 
 ## How to run
 
