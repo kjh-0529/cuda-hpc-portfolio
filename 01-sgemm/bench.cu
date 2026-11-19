@@ -19,7 +19,8 @@
 
 #include "kernels/01_naive.cuh"
 #include "kernels/02_coalesced.cuh"
-// Add new steps here, e.g. #include "kernels/03_smem_tiling.cuh"
+#include "kernels/03_smem_tiling.cuh"
+// Add new steps here, e.g. #include "kernels/04_register_blocking.cuh"
 
 using LaunchFn = void (*)(int M, int N, int K, float alpha, const float* A,
                           const float* B, float beta, float* C);
@@ -33,6 +34,7 @@ struct KernelEntry {
 static const KernelEntry kKernels[] = {
     {"01_naive", launch_sgemm_naive},
     {"02_coalesced", launch_sgemm_coalesced},
+    {"03_smem_tiling", launch_sgemm_smem_tiling},
 };
 
 // cuBLAS is column-major. For row-major C = A * B we compute C^T = B^T * A^T,
