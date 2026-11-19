@@ -10,7 +10,7 @@ Square matrices, FP32. GPU: TBD, CUDA: TBD.
 |---|---|---|---|
 | cuBLAS | TBD | 100 | reference |
 | 01 naive | TBD | TBD | one thread per output element |
-| 02 coalesced | — | — | coalesced global memory access |
+| 02 coalesced | TBD | TBD | coalesced global memory access |
 | 03 shared-memory tiling | — | — | reuse tiles of A and B from shared memory |
 | 04 register blocking | — | — | each thread computes a small block of C |
 | 05 vectorized loads | — | — | `float4` loads, no shared-memory bank conflicts |
@@ -26,6 +26,19 @@ One thread computes one element of C. `threadIdx.x` is mapped to the row, so thr
 
 - Nsight Compute: TBD (expected: low memory throughput efficiency, many sectors per request)
 - Next step: map `threadIdx.x` to the column so a warp reads consecutive addresses.
+
+### 02 coalesced
+
+Same algorithm, but `threadIdx.x` is mapped to the column of C. The 32 threads of a warp now share one row and cover 32 consecutive columns:
+
+| Access | Step 01 (per warp) | Step 02 (per warp) |
+|---|---|---|
+| `B[k*N + col]` | same address for all threads | 32 consecutive floats, one 128-byte transaction |
+| `A[row*K + k]` | 32 addresses, `K` floats apart | same address, broadcast |
+| `C[row*N + col]` | 32 addresses, `N` floats apart | 32 consecutive floats |
+
+- Nsight Compute: TBD (compare `Memory Throughput` and `L1/TEX sectors per request` with step 01)
+- Remaining bottleneck: every element of A and B is still loaded from global memory `N` or `M` times. Step 03 loads tiles into shared memory and reuses them.
 
 ## How to run
 
