@@ -22,6 +22,11 @@ Filled in as each project is benchmarked. All numbers list the GPU, CUDA version
 | Softmax / LayerNorm | TBD GB/s (TBD % of peak bandwidth) | TBD |
 | Jacobi (2 GPUs) | TBD strong-scaling efficiency | TBD |
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="01-sgemm/results/sgemm_steps_dark.png">
+  <img alt="Percent of cuBLAS reached by each SGEMM optimization step on a Tesla T4: 1.5%, 14%, 22%, 81%, 90%, 89%" src="01-sgemm/results/sgemm_steps.png">
+</picture>
+
 ## Build
 
 Requires the CUDA Toolkit (12.x or newer), CMake 3.24+, and an NVIDIA GPU.

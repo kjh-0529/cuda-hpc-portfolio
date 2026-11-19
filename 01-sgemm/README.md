@@ -24,7 +24,12 @@ Measurement notes:
 - Run-to-run variation is up to about 3–5% for the same kernel (step 05 at 1024³: 3329 vs 3279 GFLOPS in two runs), so differences smaller than that are not meaningful.
 - These are **sustained** numbers. The T4 is a 70 W card: in short bursts on a cool GPU, cuBLAS reached about 7200 GFLOPS at 2048³ in earlier runs, but under continuous load it settles near 4100 GFLOPS as the card lowers its clock to stay within power and temperature limits. All kernels here are measured in that sustained state.
 
-(Add a GFLOPS-vs-size plot here: `results/gflops.png`.)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/sgemm_steps_dark.png">
+  <img alt="Percent of cuBLAS reached by each SGEMM optimization step on a Tesla T4: 1.5%, 14%, 22%, 81%, 90%, 89%" src="results/sgemm_steps.png">
+</picture>
+
+Regenerate the chart from the CSV with `python scripts/plot_sgemm.py` (requires matplotlib).
 
 ## Steps
 
