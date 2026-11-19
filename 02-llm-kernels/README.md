@@ -30,7 +30,7 @@ GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0. Raw data: [`softmax/results/kaggle-t
 | 01 naive | 40 (17%) | 38 (17%) | 38 (16%) | 20 (9%) | one thread per row |
 | 02 block + shared memory | 92 (40%) | 223 (96%) | 167 (72%) | 117 (50%) | one block per row, coalesced, tree reduction |
 | 03 warp shuffle | 123 (54%) | 243 (105%) | 170 (73%) | 117 (50%) | reductions in registers with `__shfl_xor_sync` |
-| 04 online softmax | — | — | — | — | max and sum in one pass |
+| 04 online softmax | TBD | TBD | TBD | TBD | max and sum in one pass |
 | 05 vectorized, row in registers | — | — | — | — | `float4`, read x once |
 
 The copy reaches about 230 GB/s, roughly 72% of the T4's 320 GB/s peak, which is typical for a real kernel.
@@ -49,7 +49,18 @@ What the numbers show:
 
 **03 warp-shuffle reduction.** Each reduction first runs inside a warp with `__shfl_xor_sync` (registers only, no barrier). Only the 8 per-warp results go through shared memory. Per reduction this replaces 8 shared-memory rounds and 8 barriers with 5 shuffles and 2 barriers. Measured: 40% → 54% of the copy for 256-column rows, no change for long rows, because long rows are limited by memory, not by the reduction.
 
-**Next.** Step 04 (online softmax) computes the max and the sum in a single pass, cutting reads of x from three to two; for long rows that predicts about 2/3 = 67% of the copy. Step 05 keeps the row in registers and uses `float4`, so x is read only once; that works for rows up to a few thousand columns, while vocabulary-sized rows rely on step 04. Short rows (256) would benefit from one warp per row instead of one block.
+**04 online softmax.** Each thread keeps a running pair (m, d): the max so far and the sum of exp(x − m) so far. When a larger value arrives, the old sum is rescaled instead of recomputed:
+
+```text
+x > m:  d = d * exp(m - x) + 1,  m = x
+else:   d = d + exp(x - m)
+```
+
+Two partial pairs merge the same way, `m = max(m1, m2)`, `d = d1·exp(m1 − m) + d2·exp(m2 − m)`, so the block reduces pairs with warp shuffles as in step 03. The max and the sum now come from one pass over x, and a second pass writes y: 2 reads + 1 write instead of 3 + 1. The empty value is −FLT_MAX rather than −∞, so `exp(m_i − m)` never becomes NaN. A float32 simulation of the exact reduction order, including rows with large spikes that force many rescalings, matched a double-precision reference within 2e-6 relative error.
+
+- Measured on T4: TBD. Prediction for long rows: 2/3 = 67% of the copy (from 50%). Rows that already fit in cache (4096×1024) should not change.
+
+**Next.** Step 05 keeps the row in registers and uses `float4`, so x is read only once; that works for rows up to a few thousand columns, while vocabulary-sized rows rely on step 04. Short rows (256) would benefit from one warp per row instead of one block.
 
 ### Run
 

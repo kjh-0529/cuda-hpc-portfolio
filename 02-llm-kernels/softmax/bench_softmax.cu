@@ -26,6 +26,7 @@
 #include "kernels/01_naive.cuh"
 #include "kernels/02_block_smem.cuh"
 #include "kernels/03_warp_shuffle.cuh"
+#include "kernels/04_online.cuh"
 // Add new steps here.
 
 struct KernelEntry {
@@ -37,6 +38,7 @@ static const KernelEntry kKernels[] = {
     {"01_naive", launch_softmax_naive},
     {"02_block_smem", launch_softmax_block_smem},
     {"03_warp_shuffle", launch_softmax_warp_shuffle},
+    {"04_online", launch_softmax_online},
 };
 
 struct Shape {
