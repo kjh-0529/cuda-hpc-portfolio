@@ -6,22 +6,23 @@ FP32 matrix multiplication `C = alpha * A * B + beta * C` (row-major), optimized
 
 Square matrices, FP32. GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0, driver 580. Raw data: [`results/kaggle-t4.csv`](results/kaggle-t4.csv).
 
-| Kernel | 1024³ GFLOPS | 2048³ GFLOPS | 4096³ GFLOPS | % of cuBLAS (4096³) | Main change |
+| Kernel | 1024³ GFLOPS | 2048³ GFLOPS | 4096³ GFLOPS | % of cuBLAS (2048³) | Main change |
 |---|---|---|---|---|---|
-| cuBLAS | 2596 | 6571 | 4164 | 100 | reference |
-| 01 naive | 61 | 61 | 62 | 1.5 | one thread per output element |
-| 02 coalesced | 799 | 593 | 564 | 13.5 | coalesced global memory access |
-| 03 shared-memory tiling | 827 | 894 | 855 | 20.5 | reuse tiles of A and B from shared memory |
-| 04 register blocking | TBD | TBD | TBD | TBD | each thread computes an 8×8 block of C from registers |
+| cuBLAS | 2595 | 7176 | 4059 | 100 | reference |
+| 01 naive | 61 | 62 | 62 | 0.9 | one thread per output element |
+| 02 coalesced | 807 | 580 | 559 | 8.1 | coalesced global memory access |
+| 03 shared-memory tiling | 1038 | 887 | 855 | 12.4 | reuse tiles of A and B from shared memory |
+| 04 register blocking | 3632 | 3619 | 3057 | 50.4 | each thread computes an 8×8 block of C from registers |
 | 05 vectorized loads | — | — | — | — | `float4` loads, no shared-memory bank conflicts |
 | 06 double buffering | — | — | — | — | overlap tile loads with computation |
 
-Step 02 is 9–13x faster than step 01 at every size, from changing only how threads map to the matrix. Step 03 adds another 1.5x at 2048³ and 4096³ and, unlike step 02, holds its speed as the matrix grows.
+Step 02 is 9–13x faster than step 01, from changing only how threads map to the matrix. Step 03 adds 1.3–1.5x and, unlike step 02, holds its speed as the matrix grows. Step 04 is the big jump: 3.6–4.1x over step 03 and about 59x over naive, reaching half of cuBLAS at 2048³.
 
 Measurement notes:
 
-- The T4 is a 70 W card and lowers its clock under sustained load. cuBLAS reaches 6500–7200 GFLOPS at 2048³ but only about 4100 GFLOPS at 4096³, right after several seconds of slow naive runs. The 4096³ percentages are therefore approximate; compare kernels within the same run.
-- At 1024³ a cuBLAS call takes under 1 ms, so launch overhead lowers its GFLOPS.
+- 2048³ is the most reliable size for comparing with cuBLAS, so the percentage column uses it. cuBLAS reached 6571–7176 GFLOPS there across runs, close to the T4's FP32 peak.
+- The T4 is a 70 W card and lowers its clock under sustained load. At 4096³ cuBLAS drops to about 4100 GFLOPS right after several seconds of slow naive runs, and step 04 drops too (3619 → 3057). Percentages at 4096³ (step 04: 75%) overstate the real gap.
+- At 1024³ cuBLAS is the first thing the benchmark runs, and each call takes under 1 ms. The GPU has likely not reached full clock yet, so cuBLAS measures low (2595 GFLOPS) and step 04 appears to beat it (140%). That comparison is not meaningful.
 
 (Add a GFLOPS-vs-size plot here: `results/gflops.png`.)
 
@@ -84,7 +85,7 @@ Each block computes a 128×128 tile of C with 256 threads, so each thread comput
 
 `ptxas` reports 128 registers per thread and no register spills on sm_75. Index math was checked with a thread-by-thread CPU simulation, including sizes that are not multiples of the tile.
 
-- Measured on T4: TBD
+- Measured on T4: 3619 GFLOPS at 2048³, 4.1x step 03 and 59x step 01, about 50% of cuBLAS.
 - Nsight Compute: pending (see step 01).
 - Expected remaining bottleneck: A is read from shared memory one float at a time with a stride of 8, and global loads of A are only 32 bytes wide. Step 05 stores A transposed and uses `float4` loads.
 

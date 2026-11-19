@@ -18,7 +18,7 @@ Filled in as each project is benchmarked. All numbers list the GPU, CUDA version
 
 | Project | Best result | GPU |
 |---|---|---|
-| SGEMM (4096³, FP32) | 20.5% of cuBLAS so far (step 03 of 6; 13.9x over naive) | Tesla T4, CUDA 13.0 |
+| SGEMM (2048³, FP32) | 50% of cuBLAS so far (step 04 of 6; 59x over naive) | Tesla T4, CUDA 13.0 |
 | Softmax / LayerNorm | TBD GB/s (TBD % of peak bandwidth) | TBD |
 | Jacobi (2 GPUs) | TBD strong-scaling efficiency | TBD |
 
