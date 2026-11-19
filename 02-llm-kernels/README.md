@@ -2,7 +2,7 @@
 
 Memory-bandwidth-bound kernels used in every transformer layer, optimized step by step and later exposed to PyTorch as a C++/CUDA extension.
 
-Status: softmax done (steps 01–05, measured on a Tesla T4): copy-speed for rows up to 8192 columns. Next: LayerNorm.
+Status: softmax done (copy speed for rows up to 8192 columns on a Tesla T4). LayerNorm steps 01–03 implemented, results pending.
 
 ## Softmax
 
@@ -90,9 +90,49 @@ cd softmax && ../../build/02-llm-kernels/softmax/softmax_bench | tee results/<gp
 
 Custom shapes: `softmax_bench 4096x1024 1024x32768`.
 
+## LayerNorm
+
+Row-wise LayerNorm over a `[rows x cols]` FP32 matrix, with `gamma` and `beta` of length `cols`:
+
+```text
+mean = sum(x) / cols
+var  = sum((x - mean)^2) / cols        (biased, as in PyTorch)
+y    = (x - mean) / sqrt(var + eps) * gamma + beta
+```
+
+Inputs are `100 + uniform(-5, 5)`: a large mean relative to the spread. That is where the tempting one-pass formula `var = E[x²] − E[x]²` goes wrong in FP32, because it subtracts two large, nearly equal numbers. A float32 simulation of the reduction on these inputs gives a relative variance error of about 1e-4 for that formula versus about 1e-7 for the methods below, roughly 1000x worse, and the gap grows with mean / spread. Measurement, baseline and checks are the same as for softmax (CPU double reference, copy baseline).
+
+### Results
+
+GPU: TBD. Raw data: `layernorm/results/`.
+
+| Kernel | 8192×256 | 4096×1024 | 4096×4096 | 2048×8192 | 1024×32768 | Main change |
+|---|---|---|---|---|---|---|
+| copy (baseline) | TBD | TBD | TBD | TBD | TBD | reads x and writes y once |
+| 01 two-pass | TBD | TBD | TBD | TBD | TBD | mean, then variance, then output: x read 3 times |
+| 02 Welford | TBD | TBD | TBD | TBD | TBD | mean and variance in one pass: x read 2 times |
+| 03 auto: row in registers + dispatcher | TBD | TBD | TBD | TBD | TBD | x read once; same dispatcher as softmax |
+
+### Steps
+
+**01 two-pass.** One block per row with warp-shuffle reductions, reusing what worked for softmax. Pass 1 computes the mean, pass 2 the sum of squared deviations, pass 3 the output. Numerically stable, but x is read three times.
+
+**02 Welford.** Each thread keeps (mean, M2, count) and updates it per element; partial results from different threads merge exactly with Chan's formula, so the block reduces them with warp shuffles. Mean and variance come from one pass, and the output from a second: 2 reads of x, still numerically stable. This is LayerNorm's counterpart of online softmax.
+
+**03 row in registers + dispatcher.** The softmax step 05 design: one warp per row up to 1024 columns, one 256-thread block per row up to 8192, `float4` loads, x read once. With the row in registers, the exact two-pass variance costs no extra memory traffic, so Welford is not needed there. Longer rows, and rows whose length is not a multiple of 4, use step 02. `gamma` and `beta` are also read with `float4`; they are shared by all rows and stay in cache.
+
+Checks before running on a GPU: all nine kernel configurations compile with no register spills, and a float32 simulation of the Welford merge tree and the register kernel's statistics matched a double-precision reference within 2.3e-7 relative variance error.
+
+- Prediction: the same pattern as softmax. Step 02 helps long rows (about 50% → 67% of the copy at 32768 columns); step 03 reaches about 100% of the copy up to 8192 columns.
+
+### Run
+
+```bash
+cd layernorm && ../../build/02-llm-kernels/layernorm/layernorm_bench 2>&1 | tee results/<gpu-name>.csv
+```
+
 ## Planned
 
-- LayerNorm with Welford's algorithm (mean and variance in one pass)
 - FP16 / BF16 inputs
 - PyTorch C++/CUDA extension (`torch.utils.cpp_extension`), compared with `torch.softmax` and `torch.nn.LayerNorm`
 - Optional: the same softmax in Triton

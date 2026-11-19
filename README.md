@@ -37,6 +37,7 @@ cmake -S . -B build -DCMAKE_CUDA_ARCHITECTURES=native
 cmake --build build -j
 ./build/01-sgemm/sgemm_bench
 ./build/02-llm-kernels/softmax/softmax_bench
+./build/02-llm-kernels/layernorm/layernorm_bench
 ```
 
 Without `-DCMAKE_CUDA_ARCHITECTURES`, the build targets T4, A100, RTX 30xx and RTX 40xx (sm_75, 80, 86, 89).

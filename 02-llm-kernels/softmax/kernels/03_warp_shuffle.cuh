@@ -10,26 +10,7 @@
 #include "cuda_check.cuh"
 #include "kernels/common.cuh"
 
-// Block-wide reduction built from warp reductions. Returns the result to every thread.
-template <int THREADS, bool IS_MAX>
-__device__ __forceinline__ float block_reduce(float v, float* scratch) {
-    constexpr int kWarps = THREADS / 32;
-    const int lane = threadIdx.x % 32;
-    const int warp = threadIdx.x / 32;
-
-    v = IS_MAX ? warp_reduce_max(v) : warp_reduce_sum(v);
-    if (lane == 0) scratch[warp] = v;
-    __syncthreads();
-    if (warp == 0) {
-        float w = (lane < kWarps) ? scratch[lane] : (IS_MAX ? -FLT_MAX : 0.0f);
-        w = IS_MAX ? warp_reduce_max(w) : warp_reduce_sum(w);
-        if (lane == 0) scratch[0] = w;
-    }
-    __syncthreads();
-    const float result = scratch[0];
-    __syncthreads();  // scratch can be reused by the next reduction
-    return result;
-}
+// block_reduce() lives in 02-llm-kernels/common/reduce.cuh (shared with LayerNorm).
 
 template <int THREADS>
 __global__ void softmax_warp_shuffle_kernel(const float* __restrict__ x,
