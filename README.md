@@ -1,6 +1,6 @@
 # CUDA & HPC Portfolio
 
-Hands-on GPU performance engineering: CUDA kernel optimization measured against vendor libraries, LLM-relevant kernels exposed to PyTorch, and multi-GPU MPI + CUDA.
+Hands-on GPU performance engineering: CUDA kernel optimization measured against vendor libraries, LLM-relevant kernels exposed to PyTorch, and multi-GPU distributed training.
 
 Each project starts from a simple, correct baseline and improves it one step at a time. Every step is verified against a reference, timed, and profiled with Nsight Compute or Nsight Systems, and the README for each project explains what changed and why it got faster.
 
@@ -10,7 +10,7 @@ Each project starts from a simple, correct baseline and improves it one step at 
 |---|---|---|---|---|
 | 1 | [SGEMM optimization](01-sgemm/) | Memory hierarchy, tiling, register blocking, profiling | cuBLAS | Done (profiling pending) |
 | 2 | [LLM kernels: Softmax & LayerNorm](02-llm-kernels/) | Warp-level reductions, kernel fusion, PyTorch C++/CUDA extension | PyTorch | Planned |
-| 3 | [MPI + CUDA 2D Jacobi solver](03-mpi-jacobi/) | Multi-GPU domain decomposition, halo exchange, compute/communication overlap | CPU (OpenMP) | Planned |
+| 3 | [Distributed training with PyTorch DDP](03-ddp-training/) | Multi-GPU training, NCCL communication, mixed precision, scaling analysis | 1 GPU | Planned |
 
 ## Results summary
 
@@ -20,7 +20,7 @@ Filled in as each project is benchmarked. All numbers list the GPU, CUDA version
 |---|---|---|
 | SGEMM (2048³, FP32) | ~90% of cuBLAS (6 steps; 59x over naive) | Tesla T4, CUDA 13.0 |
 | Softmax / LayerNorm | TBD GB/s (TBD % of peak bandwidth) | TBD |
-| Jacobi (2 GPUs) | TBD strong-scaling efficiency | TBD |
+| DDP training (2 GPUs) | TBD tokens/s, TBD scaling efficiency | TBD |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="01-sgemm/results/sgemm_steps_dark.png">
@@ -45,7 +45,7 @@ Without `-DCMAKE_CUDA_ARCHITECTURES`, the build targets T4, A100, RTX 30xx and R
 common/          error checks, GPU timer, result verification
 01-sgemm/        SGEMM kernels, benchmark, results
 02-llm-kernels/  Softmax / LayerNorm kernels and PyTorch extension
-03-mpi-jacobi/   CPU, single-GPU and MPI multi-GPU Jacobi solvers
+03-ddp-training/ small GPT trained on 1 and 2 GPUs with PyTorch DDP
 ```
 
 ## About me
