@@ -8,19 +8,19 @@ Square matrices, FP32. GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0, driver 580. R
 
 | Kernel | 1024³ GFLOPS | 2048³ GFLOPS | 4096³ GFLOPS | % of cuBLAS (4096³) | Main change |
 |---|---|---|---|---|---|
-| cuBLAS | 2593 | 7176 | 4058 | 100 | reference |
-| 01 naive | 58 | 62 | 62 | 1.5 | one thread per output element |
-| 02 coalesced | 744 | 579 | 549 | 13.5 | coalesced global memory access |
-| 03 shared-memory tiling | TBD | TBD | TBD | TBD | reuse tiles of A and B from shared memory |
+| cuBLAS | 2596 | 6571 | 4164 | 100 | reference |
+| 01 naive | 61 | 61 | 62 | 1.5 | one thread per output element |
+| 02 coalesced | 799 | 593 | 564 | 13.5 | coalesced global memory access |
+| 03 shared-memory tiling | 827 | 894 | 855 | 20.5 | reuse tiles of A and B from shared memory |
 | 04 register blocking | — | — | — | — | each thread computes a small block of C |
 | 05 vectorized loads | — | — | — | — | `float4` loads, no shared-memory bank conflicts |
 | 06 double buffering | — | — | — | — | overlap tile loads with computation |
 
-Step 02 is 9–13x faster than step 01 at every size, from changing only how threads map to the matrix.
+Step 02 is 9–13x faster than step 01 at every size, from changing only how threads map to the matrix. Step 03 adds another 1.5x at 2048³ and 4096³ and, unlike step 02, holds its speed as the matrix grows.
 
 Measurement notes:
 
-- The T4 is a 70 W card and lowers its clock under sustained load. cuBLAS reached 7176 GFLOPS at 2048³ but only 4058 GFLOPS at 4096³, right after several seconds of slow naive runs. The 4096³ percentages are therefore approximate; compare kernels within the same run.
+- The T4 is a 70 W card and lowers its clock under sustained load. cuBLAS reaches 6500–7200 GFLOPS at 2048³ but only about 4100 GFLOPS at 4096³, right after several seconds of slow naive runs. The 4096³ percentages are therefore approximate; compare kernels within the same run.
 - At 1024³ a cuBLAS call takes under 1 ms, so launch overhead lowers its GFLOPS.
 
 (Add a GFLOPS-vs-size plot here: `results/gflops.png`.)
@@ -44,7 +44,7 @@ Same algorithm, but `threadIdx.x` is mapped to the column of C. The 32 threads o
 | `A[row*K + k]` | 32 addresses, `K` floats apart | same address, broadcast |
 | `C[row*N + col]` | 32 addresses, `N` floats apart | 32 consecutive floats |
 
-- Measured on T4: 744 GFLOPS at 1024³ (12.7x step 01), 549 GFLOPS at 4096³ (8.9x).
+- Measured on T4: 799 GFLOPS at 1024³ (13.2x step 01), 564 GFLOPS at 4096³ (9.1x).
 - GFLOPS falls as the matrix grows: each thread still streams a full row of A and column of B from global memory, and at larger sizes less of that data stays in the 4 MB L2 cache between reuses.
 - Nsight Compute: pending (see step 01). Compare `Memory Throughput` and `L1/TEX sectors per request` with step 01.
 - Remaining bottleneck: every element of A and B is still loaded from global memory `N` or `M` times. Step 03 loads tiles into shared memory and reuses them.
@@ -60,9 +60,13 @@ Each 32×32 thread block computes a 32×32 tile of C and walks along K in steps 
 
 Every value loaded from global memory is reused 32 times inside the block, so global memory traffic drops by about 32x versus step 02. In the inner loop, `As[ty][k]` is a broadcast and `Bs[k][tx]` reads 32 consecutive floats, so there are no shared-memory bank conflicts. Out-of-range elements are loaded as zero, so sizes that are not multiples of 32 stay correct.
 
-- Measured on T4: TBD
+- Measured on T4: 855 GFLOPS at 4096³, 1.52x step 02 and 13.9x step 01. At 1024³ the gain is only 1.04x, because there the whole problem already fits well in L2 and step 02 was not starved for memory.
+- GFLOPS no longer drops with matrix size (827 → 894 → 855), since global memory traffic no longer grows with the cache misses that hurt step 02.
+- Why only 1.5x and not 32x: the bottleneck moved from global memory to the SM itself.
+    - Each multiply-add still needs two shared-memory loads, so shared-memory bandwidth and load instructions now limit speed.
+    - A 32×32 block has 1024 threads, which is the per-SM maximum on Turing (sm_75). Only one block fits per SM, so during each `__syncthreads()` there is no other block to keep the SM busy.
 - Nsight Compute: pending (see step 01).
-- Expected remaining bottleneck: each multiply-add still needs two shared-memory loads, so shared-memory bandwidth and instruction overhead limit performance. Step 04 makes each thread compute several elements of C and keeps values in registers.
+- Next: step 04 makes each thread compute several elements of C from values held in registers, cutting shared-memory loads per multiply-add and using smaller blocks.
 
 ## How to run
 
