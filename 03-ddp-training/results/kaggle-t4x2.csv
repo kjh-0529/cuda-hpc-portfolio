@@ -1,0 +1,5 @@
+run,gpus,amp,grad_accum,global_batch_tokens,tokens_per_s,tokens_per_s_per_gpu,ms_per_step,mfu_pct,peak_mem_gb,final_val_loss
+1gpu_fp32,1,none,1,8192,27120,27120,302.1,41.7,1.98,2.0465
+1gpu_fp16,1,fp16,1,8192,107597,107597,76.1,20.6,1.29,2.0477
+2gpu_fp16,2,fp16,1,16384,200867,100434,81.6,19.2,1.37,1.8982
+1gpu_fp16_accum2,1,fp16,2,16384,96789,96789,169.3,18.5,1.37,1.8953
