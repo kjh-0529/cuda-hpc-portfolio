@@ -24,3 +24,4 @@ find_package(CUDAToolkit REQUIRED)
 
 add_subdirectory(01-sgemm)
 add_subdirectory(02-llm-kernels)
+add_subdirectory(04-memory-bandwidth)

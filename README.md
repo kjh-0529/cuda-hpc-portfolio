@@ -11,6 +11,7 @@ Each project starts from a simple, correct baseline and improves it one step at 
 | 1 | [SGEMM optimization](01-sgemm/) | Memory hierarchy, tiling, register blocking, profiling | cuBLAS | Done (profiling pending) |
 | 2 | [LLM kernels: Softmax & LayerNorm](02-llm-kernels/) | Warp-level reductions, kernel fusion, PyTorch C++/CUDA extension | Memory copy, PyTorch | Done |
 | 3 | [Distributed training with PyTorch DDP](03-ddp-training/) | Multi-GPU training, NCCL communication, mixed precision, scaling analysis | 1 GPU | Done |
+| 4 | [Memory bandwidth benchmarking](04-memory-bandwidth/) | STREAM-style kernels on GPU (and CPU): block size, device / managed / host memory, % of theoretical peak | Theoretical peak, cudaMemcpy | In progress |
 
 ## Results summary
 
@@ -39,6 +40,7 @@ cmake --build build -j
 ./build/01-sgemm/sgemm_bench
 ./build/02-llm-kernels/softmax/softmax_bench
 ./build/02-llm-kernels/layernorm/layernorm_bench
+./build/04-memory-bandwidth/gpu_stream
 ```
 
 Without `-DCMAKE_CUDA_ARCHITECTURES`, the build targets T4, A100, RTX 30xx and RTX 40xx (sm_75, 80, 86, 89).
