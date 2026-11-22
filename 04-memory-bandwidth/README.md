@@ -2,7 +2,7 @@
 
 How much of the hardware's memory bandwidth can code actually reach, and what decides it? Measured with STREAM-style kernels written from scratch: GPU first (Tesla T4), then CPU.
 
-Status: GPU part measured on a Tesla T4 (all results verified); CPU part planned.
+Status: GPU part measured on a Tesla T4 (all results verified); CPU benchmark implemented, Kaggle results pending.
 
 ## GPU: `gpu_stream`
 
@@ -69,6 +69,27 @@ What it shows:
 - **Managed memory is free once the data is on the GPU, and very expensive before.** Steady-state runs match device memory, but the first kernel after the CPU wrote the arrays ran at 3.6–4.4 GB/s, a third of what PCIe carries: pages move on demand through page faults, which is far slower than one bulk transfer (the usual explanation; the fault handling itself was not profiled). Moving them ahead of time (`cudaMemPrefetchAsync`) is the usual fix; it was not measured here.
 - **Mapped host memory is limited by PCIe, about 12.4 GB/s in each direction.** The T4 sits on PCIe 3.0 x16, which carries traffic both ways at once. Dot only reads and reaches 12.4 GB/s; Add and Triad read 537 MB in the same time (12.3 GB/s read); Copy reads and writes equal amounts, so its 21 GB/s is about 10.8 GB/s in each direction at the same time. Everything over PCIe is about 20x slower than GPU memory.
 
+## CPU: `cpu_stream`
+
+[`cpu_stream.c`](cpu_stream.c) runs STREAM's four kernels (Copy, Scale, Add, Triad) on doubles with OpenMP, written from scratch in the style of John McCalpin's STREAM:
+
+- **Arrays of 2^27 doubles, 1.07 GB each.** STREAM's rule is at least 4x the last-level cache, or the kernels measure cache instead of memory. Some current server CPUs have hundreds of MB of L3.
+- **First-touch placement:** the arrays are initialized by the same threads, with the same static schedule, that later use them, so each page lands on the NUMA node of the thread that uses it.
+- **STREAM's conventions:** 20 repetitions, the first one skipped, the best time reported (the median too, since cloud VMs share hardware). Bytes are counted as in STREAM (Copy/Scale 16 per element, Add/Triad 24); without non-temporal stores the CPU also reads each destination line before writing it, so real traffic is higher.
+- **Verification:** the same sequence is replayed on scalars and checked with a relative tolerance; a deliberately wrong expected value is caught.
+
+[`run_cpu.sh`](run_cpu.sh) runs two sweeps and writes `results/cpu_<host>.csv`:
+
+1. **Compiler flags on one thread** (`-O0`, `-O2`, `-O3`, `-O3 -march=native`, `-O3 -march=native -ffreestanding`): how much code generation alone changes bandwidth. `-ffreestanding` stops GCC from replacing the copy loop with a `memcpy` call.
+2. **Threads and placement** with the `-O3 -march=native` build: 1 to all CPUs, with `OMP_PROC_BIND=close` and `spread`.
+
+Predictions, written before the Kaggle run. The script was first tested end to end on a different 4-core cloud VM, so these are informed by that test (whose numbers are not reported here):
+
+- **`-O0` far slower** than optimized builds; `-O2`, `-O3` and `-march=native` close to each other, because one core cannot use all the memory bandwidth and wider vector instructions do not make memory faster.
+- **Bandwidth grows with threads** on a small VM, which has too few cores to saturate the memory system.
+- **`close` vs. `spread` makes little difference** on a VM with one socket and one NUMA node; placement matters on multi-socket servers.
+- **Add and Triad report more GB/s than Copy and Scale**, partly because of the write-allocate traffic STREAM does not count.
+
 ## Run
 
 ```bash
@@ -77,6 +98,12 @@ cmake -S .. -B ../build -DCMAKE_CUDA_ARCHITECTURES=75 && cmake --build ../build 
 ```
 
 Options: `--n ELEMENTS`, `--modes device,managed,host`, `--tbsizes 64,128,256,512,1024`.
+
+CPU (no GPU needed, about 4 minutes on 4 cores):
+
+```bash
+./run_cpu.sh
+```
 
 ## Background
 
