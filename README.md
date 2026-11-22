@@ -52,6 +52,18 @@ common/          error checks, GPU timer, result verification
 03-ddp-training/ small GPT trained on 1 and 2 GPUs with PyTorch DDP
 ```
 
+## How this was built
+
+This portfolio was developed with [Claude Code](https://claude.com/claude-code), an AI coding assistant, used as a pair programmer. Claude wrote most of the code and first drafts of the documentation; commits show it as author or co-author.
+
+My part:
+
+- **Direction.** I chose what to build and made the calls along the way, for example which projects to keep or replace, which dataset and model size to use, and when a result was good enough to merge.
+- **Every measurement.** I ran all GPU benchmarks, training runs and evaluations myself on Kaggle (Tesla T4) and reported the raw output. No number in these READMEs was estimated or filled in; each one comes from a run I executed, and the raw files are committed next to the results.
+- **Review and domain knowledge.** I read the analyses, questioned results that looked wrong, and bring three years of HPC user support on a national supercomputer to what the projects measure and why.
+
+Before measuring, each step wrote down a prediction; when a result disagreed, the README says so and explains why.
+
 ## About me
 
-HPC and GPU computing engineer. For the past three years I have supported researchers on a national supercomputer in South Korea, parallelizing and optimizing their codes with CUDA, MPI and OpenMP. All code in this repository is written independently for this portfolio.
+HPC and GPU computing engineer. For the past three years I have supported researchers on a national supercomputer in South Korea, parallelizing and optimizing their codes with CUDA, MPI and OpenMP. All code here was written for this portfolio; none of it comes from my employer's projects.
