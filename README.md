@@ -23,6 +23,7 @@ Filled in as each project is benchmarked. All numbers list the GPU, CUDA version
 | Softmax (FP32) | 98–102% of copy bandwidth for rows up to 8192 columns; 64% for 32768 (6–8x over naive) | Tesla T4, CUDA 13.0 |
 | LayerNorm (FP32) | 97–101% of copy bandwidth for rows up to 8192 columns; 63% for 32768 | Tesla T4, CUDA 13.0 |
 | As PyTorch ops | LayerNorm 1.4–1.5x faster than `F.layer_norm` (256 / 4096 / 8192 cols); softmax 0.95–1.18x of `torch.softmax` | Tesla T4, PyTorch 2.11 |
+| Memory bandwidth (GPU) | Hand-written kernels reach 76–85% of the 320 GB/s peak (copy 244, triad 255, read-only dot 271 GB/s), above `cudaMemcpy` (232); managed memory first touch 60x slower; PCIe about 12 GB/s per direction | Tesla T4 |
 | DDP training (small GPT) | FP16 4.0x faster than FP32; 2 GPUs at 93% scaling efficiency, ~100% with `no_sync()` accumulation; same convergence as 1 GPU | 2x Tesla T4, PyTorch 2.11 |
 
 <picture>

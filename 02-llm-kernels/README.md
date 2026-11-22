@@ -187,5 +187,5 @@ python bench_torch.py --out results/<gpu-name>.csv
 - FP16 / BF16 inputs
 - Backward passes, so the ops can be used in training (`torch.autograd.Function`)
 - Long rows (32768 columns): split each row across several blocks and combine their partial results, to read x once even when it does not fit in registers
-- A better bandwidth ceiling than `cudaMemcpy` (a tuned copy kernel), since PyTorch softmax exceeds it by about 5%
+- ~~A better bandwidth ceiling than `cudaMemcpy`~~: measured in [project 4](../04-memory-bandwidth/). A plain copy kernel reaches 244 GB/s on the T4 versus 232 GB/s for `cudaMemcpy`, so the "% of copy" figures above are about 5% generous, and PyTorch's softmax runs at copy-kernel speed.
 - Optional: the same softmax in Triton
