@@ -2,7 +2,7 @@
 
 How much of the hardware's memory bandwidth can code actually reach, and what decides it? Measured with STREAM-style kernels written from scratch: GPU first (Tesla T4), then CPU.
 
-Status: GPU part measured on a Tesla T4 (all results verified); CPU benchmark implemented, Kaggle results pending.
+Status: done. GPU measured on a Tesla T4, CPU on a Kaggle VM; all results verified.
 
 ## GPU: `gpu_stream`
 
@@ -89,6 +89,47 @@ Predictions, written before the Kaggle run. The script was first tested end to e
 - **Bandwidth grows with threads** on a small VM, which has too few cores to saturate the memory system.
 - **`close` vs. `spread` makes little difference** on a VM with one socket and one NUMA node; placement matters on multi-socket servers.
 - **Add and Triad report more GB/s than Copy and Scale**, partly because of the write-allocate traffic STREAM does not count.
+
+## CPU results (Kaggle VM)
+
+Intel Xeon @ 2.00 GHz, **2 physical cores with 2 hyper-threads each (4 vCPUs)**, 38.5 MB L3, one NUMA node, GCC with OpenMP. Arrays of 1.07 GB are 28x the L3. Best of 19 runs (medians within 3%). Raw data: [`results/cpu_kaggle.csv`](results/cpu_kaggle.csv).
+
+**Compiler flags, one thread (GB/s)**
+
+| Flags | Copy | Scale | Add | Triad |
+|---|---|---|---|---|
+| `-O0` | 5.8 | 5.3 | 8.0 | 7.1 |
+| `-O2` | 12.0 | 12.0 | 12.7 | 12.7 |
+| `-O3` | 12.4 | 12.3 | 13.1 | 12.9 |
+| `-O3 -march=native` | 12.2 | 11.9 | 13.1 | 13.2 |
+| `-O3 -march=native -ffreestanding` | 12.2 | 11.8 | 13.0 | 13.0 |
+
+**Threads and placement, `-O3 -march=native`, Triad (GB/s)**
+
+| Threads | `close` | `spread` |
+|---|---|---|
+| 1 | 13.1 | 12.7 |
+| 2 | 25.0 | 24.8 |
+| 3 | **20.5** | **20.9** |
+| 4 | 26.8 | 26.8 |
+
+Checked against the predictions:
+
+| Prediction | Result | |
+|---|---|---|
+| `-O0` far slower | about half | right |
+| `-O2`, `-O3`, `-march=native` close | 12.7–13.2 GB/s for Triad | right |
+| Bandwidth grows with threads | 1 → 2: 1.9x; **3 is slower than 2**; 4 only +7% over 2 | half right |
+| `close` vs. `spread` makes little difference | same within 2% | right |
+| Add and Triad above Copy and Scale | 5–10% higher | right |
+
+What it shows:
+
+- **Once the code is compiled with optimization, the compiler stops mattering.** `-O0` keeps loop variables in memory and runs at half speed; every optimized build lands within 4% of the others. AVX-512 from `-march=native` does not help: one core is limited by how many memory requests it can keep in flight, not by how fast it computes. `-ffreestanding` (no `memcpy` substitution for the copy loop) changed nothing either.
+- **Scaling follows physical cores, not vCPUs.** Two threads on the two physical cores nearly double the bandwidth. The four vCPUs are two cores with two hyper-threads each, and `OMP_PLACES=cores` gives OpenMP only two places. With three threads, two of them share one core; the static schedule gives every thread an equal share of the array, so the shared core finishes last and the whole run waits for it: 20.5 GB/s, less than with two threads. With four threads both cores are balanced again, but hyper-threads add almost no memory bandwidth (+7%). The topology is confirmed by `lscpu`; the imbalance explanation fits the numbers but was not tested separately (for example with `OMP_PLACES=threads`).
+- **Placement does not matter here**, as expected with one socket and one NUMA node; `close` and `spread` only differ on multi-socket servers.
+- **Practical rule for such VMs:** use one thread per physical core. Counting vCPUs as cores can make a memory-bound program slower.
+- For scale: the T4's own memory delivers about 10x what this VM's CPU reaches (255 vs. 27 GB/s), and its PCIe link (about 12 GB/s per direction) is slower than the CPU's memory.
 
 ## Run
 

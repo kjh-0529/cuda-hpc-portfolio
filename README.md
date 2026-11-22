@@ -11,7 +11,7 @@ Each project starts from a simple, correct baseline and improves it one step at 
 | 1 | [SGEMM optimization](01-sgemm/) | Memory hierarchy, tiling, register blocking, profiling | cuBLAS | Done (profiling pending) |
 | 2 | [LLM kernels: Softmax & LayerNorm](02-llm-kernels/) | Warp-level reductions, kernel fusion, PyTorch C++/CUDA extension | Memory copy, PyTorch | Done |
 | 3 | [Distributed training with PyTorch DDP](03-ddp-training/) | Multi-GPU training, NCCL communication, mixed precision, scaling analysis | 1 GPU | Done |
-| 4 | [Memory bandwidth benchmarking](04-memory-bandwidth/) | STREAM-style kernels on GPU (and CPU): block size, device / managed / host memory, % of theoretical peak | Theoretical peak, cudaMemcpy | In progress |
+| 4 | [Memory bandwidth benchmarking](04-memory-bandwidth/) | STREAM-style kernels on GPU (and CPU): block size, device / managed / host memory, % of theoretical peak | Theoretical peak, cudaMemcpy | Done |
 
 ## Results summary
 
@@ -24,6 +24,7 @@ Filled in as each project is benchmarked. All numbers list the GPU, CUDA version
 | LayerNorm (FP32) | 97–101% of copy bandwidth for rows up to 8192 columns; 63% for 32768 | Tesla T4, CUDA 13.0 |
 | As PyTorch ops | LayerNorm 1.4–1.5x faster than `F.layer_norm` (256 / 4096 / 8192 cols); softmax 0.95–1.18x of `torch.softmax` | Tesla T4, PyTorch 2.11 |
 | Memory bandwidth (GPU) | Hand-written kernels reach 76–85% of the 320 GB/s peak (copy 244, triad 255, read-only dot 271 GB/s), above `cudaMemcpy` (232); managed memory first touch 60x slower; PCIe about 12 GB/s per direction | Tesla T4 |
+| Memory bandwidth (CPU) | 2-core VM: 13 GB/s per core, 25 GB/s on 2 cores; compiler flags beyond `-O2` and hyper-threads add almost nothing; 3 threads on 2 cores are slower than 2 | Kaggle VM (Xeon, 2 cores / 4 vCPUs) |
 | DDP training (small GPT) | FP16 4.0x faster than FP32; 2 GPUs at 93% scaling efficiency, ~100% with `no_sync()` accumulation; same convergence as 1 GPU | 2x Tesla T4, PyTorch 2.11 |
 
 <picture>
