@@ -33,6 +33,10 @@ Scaling efficiency = tokens/s on N GPUs ÷ (N × tokens/s on 1 GPU).
 
 2x Tesla T4 on Kaggle, PyTorch 2.11 (CUDA 13.0), 300 steps per run. Raw data: [`results/kaggle-t4x2.csv`](results/kaggle-t4x2.csv).
 
+![Training throughput on Tesla T4: 27k tokens/s FP32, 108k FP16, 201k on 2 GPUs, 216k on 2 GPUs with no_sync()](results/ddp_throughput.png)
+
+Regenerate the chart with `python scripts/plot_results.py` (requires matplotlib).
+
 | Run | Purpose | GPUs | Precision | Global batch (tokens) | tokens/s | ms/step | MFU | Peak memory | Final val loss |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 GPU FP32 | baseline | 1 | FP32 | 8,192 | 27,120 | 302.1 | 41.7% of 8.1 TFLOPS | 1.98 GB | 2.047 |

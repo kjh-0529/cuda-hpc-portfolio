@@ -24,6 +24,10 @@ Every kernel is checked against a double-precision CPU reference. Timing uses th
 
 GPU: Tesla T4 (sm_75) on Kaggle, CUDA 13.0. Raw data: [`softmax/results/kaggle-t4.csv`](softmax/results/kaggle-t4.csv). Cells show effective bandwidth in GB/s and, in parentheses, % of the copy baseline.
 
+![Softmax bandwidth per optimization step at 4096×4096 on a Tesla T4: 16%, 72%, 73%, 78%, 100% of copy](results/softmax_steps.png)
+
+Regenerate the chart with `python scripts/plot_results.py` (requires matplotlib).
+
 | Kernel | 8192×256 | 4096×1024 | 4096×4096 | 2048×8192 | 1024×32768 | Main change |
 |---|---|---|---|---|---|---|
 | copy (baseline) | 228 | 232 | 232 | 233 | 234 | reads x and writes y once |

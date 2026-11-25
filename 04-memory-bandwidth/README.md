@@ -39,6 +39,10 @@ Before timing, each configuration runs every kernel once from known values and c
 
 Theoretical peak 320.1 GB/s (from the reported memory clock and bus width). Raw data: [`results/kaggle-t4.csv`](results/kaggle-t4.csv). Block size made almost no difference (next section), so this table shows the 1,024-thread runs.
 
+![GPU bandwidth on a Tesla T4 against the 320 GB/s peak: cudaMemcpy 232, copy 244, scale 244, add 254, triad 255, dot 271 GB/s](results/gpu_bandwidth.png)
+
+Regenerate the chart with `python scripts/plot_results.py` (requires matplotlib).
+
 | Kernel | Device memory | Managed (pages on GPU) | Mapped host memory |
 |---|---|---|---|
 | `cudaMemcpy` | 232.0 GB/s (72.5%) | — | — |
