@@ -33,9 +33,9 @@ Filled in as each project is benchmarked. All numbers list the GPU, CUDA version
 </picture>
 
 <p>
-  <a href="02-llm-kernels/"><img width="32%" alt="Softmax bandwidth per optimization step at 4096×4096 on a Tesla T4: 16%, 72%, 73%, 78%, 100% of copy" src="02-llm-kernels/results/softmax_steps.png"></a>
-  <a href="03-ddp-training/"><img width="32%" alt="Training throughput on Tesla T4: 27k tokens/s FP32, 108k FP16, 201k on 2 GPUs, 216k on 2 GPUs with no_sync()" src="03-ddp-training/results/ddp_throughput.png"></a>
-  <a href="04-memory-bandwidth/"><img width="32%" alt="GPU bandwidth on a Tesla T4 against the 320 GB/s peak: cudaMemcpy 232, copy 244, scale 244, add 254, triad 255, dot 271 GB/s" src="04-memory-bandwidth/results/gpu_bandwidth.png"></a>
+  <a href="02-llm-kernels/"><img width="49%" alt="Softmax bandwidth per optimization step at 4096×4096 on a Tesla T4: 16%, 72%, 73%, 78%, 100% of copy" src="02-llm-kernels/results/softmax_steps.png"></a>
+  <a href="03-ddp-training/"><img width="49%" alt="Training throughput on Tesla T4: 27k tokens/s FP32, 108k FP16, 201k on 2 GPUs, 216k on 2 GPUs with no_sync()" src="03-ddp-training/results/ddp_throughput.png"></a>
+  <a href="04-memory-bandwidth/"><img width="49%" alt="GPU bandwidth on a Tesla T4 against the 320 GB/s peak: cudaMemcpy 232, copy 244, scale 244, add 254, triad 255, dot 271 GB/s" src="04-memory-bandwidth/results/gpu_bandwidth.png"></a>
 </p>
 
 ## Build
