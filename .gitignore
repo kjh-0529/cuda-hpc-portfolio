@@ -4,3 +4,4 @@ build/
 __pycache__/
 *.so
 .ipynb_checkpoints/
+.serena/
